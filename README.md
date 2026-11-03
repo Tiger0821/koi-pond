@@ -3,6 +3,16 @@
 A living koi pond behind your Mac desktop icons, inspired by Solas. Koi, small fish, turtles,
 lily pads, lotus flowers, plants and weather are simulated live with Metal, not looped video.
 
+## Install
+
+Download `KoiPond-1.0.0.zip` from the [latest release](https://github.com/Tiger0821/KoiFishWallpaper/releases/latest),
+unzip it and move `KoiPond.app` to `/Applications`. It needs macOS 14 or later on Apple silicon.
+
+The app is signed ad hoc, not notarized, so the first time macOS refuses to open it: Control-click it and
+choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/KoiPond.app`. It then asks once to
+control Music (for the Now Playing player) and once to hear Music's audio (for the fish dancing); both
+are optional.
+
 ## Build and run
 
 ```bash

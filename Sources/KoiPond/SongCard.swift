@@ -56,6 +56,8 @@ final class SongCard {
         let style: SongTransition
         var song: SongFace
         let songKey: String?
+        /// Varies the wet trail from one show to the next.
+        let seed = Double.random(in: 0...100)
         var last: CFTimeInterval
         var beat = 0.0
         var frame = 0
@@ -93,8 +95,7 @@ final class SongCard {
         host.layer = root
         host.wantsLayer = true
         shadow.backgroundColor = CGColor(gray: 0, alpha: 1)
-        smear.backgroundColor = CGColor(srgbRed: 0.85, green: 0.95, blue: 1, alpha: 0.13)
-        for layer in [card, fish] {
+        for layer in [card, fish, smear] {
             layer.magnificationFilter = .nearest
             layer.contentsGravity = .resize
         }
@@ -251,9 +252,7 @@ final class SongCard {
             pose = .dazed
             opacity = Float(min(1, (span - since) / 0.25))
             show.beat += dt * 4
-            let width = CGFloat(KoiFace.size) * show.near * 0.42
-            smear.frame = CGRect(x: show.impact.x - width / 2, y: position.y, width: width, height: max(0, show.impact.y - position.y))
-            smear.opacity = 1
+            trail(&show, fishAt: position, since: since)
         }
         fish.contents = KoiFace.image(look: show.look, pose: pose, beat: show.beat, flash: flash)
         fish.bounds = CGRect(x: 0, y: 0, width: CGFloat(KoiFace.size) * scale, height: CGFloat(KoiFace.size) * scale)
@@ -262,11 +261,91 @@ final class SongCard {
         fish.opacity = opacity
     }
 
+    /// The wet streak from where the mouth met the glass down to the sliding fish, in the fish's own pixels.
+    private func trail(_ show: inout Show, fishAt fish: CGPoint, since: Double) {
+        let unit = show.near
+        let top = show.impact.y - 10 * unit
+        let rows = Int(((top - fish.y) / unit).rounded(.down))
+        let slant = Int(((fish.x - show.impact.x) / unit).rounded())
+        guard rows > 0, let image = WetTrail.image(width: 18, rows: rows, slant: slant, seed: show.seed) else { return }
+        let left = min(show.impact.x, fish.x) - CGFloat(18 / 2 + WetTrail.margin) * unit
+        smear.contents = image
+        smear.frame = CGRect(x: left, y: top - CGFloat(image.height) * unit,
+                             width: CGFloat(image.width) * unit, height: CGFloat(image.height) * unit)
+        smear.opacity = 1
+    }
+
     private func drawCard(_ show: inout Show, now: CFTimeInterval) {
         // The cover may come in after the card is out, from the online lookup.
         if let info = player.info, info.trackKey == show.songKey, let cover = player.cover { show.song.cover = cover }
         let change = show.change.flatMap { $0.isOver(at: now) ? nil : $0 }
         card.contents = NowPlayingArt.card(song: show.song, change: change)
+    }
+
+    // MARK: Water on the glass
+
+    /// A wet streak as pixel art, like water left on glass: faint vertical streaks of different strengths
+    /// dragged by the scales and fins, each breaking up along its length; beads dotted along the wandering
+    /// edges rather than an outline; narrow where the mouth first touched, thinning out further down where
+    /// the fish slid fastest; and a few runs dripping on below.
+    private enum WetTrail {
+        static let margin = 3
+
+        static func image(width: Int, rows: Int, slant: Int, seed: Double) -> CGImage? {
+            let columns = width + abs(slant) + margin * 2
+            guard let ctx = CGContext(data: nil, width: columns, height: rows, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                                          | CGBitmapInfo.byteOrder32Little.rawValue) else { return nil }
+            /// Smooth, repeatable wobble between about 0 and 1.
+            func wobble(_ x: Double) -> Double { 0.5 + 0.3 * sin(x) + 0.2 * sin(x * 2.7 + 1.3) }
+            func pixel(_ x: Int, _ row: Int, _ alpha: Double) {
+                guard x >= 0, x < columns, row >= 0, row < rows, alpha > 0.01 else { return }
+                ctx.setFillColor(CGColor(srgbRed: 0.84, green: 0.94, blue: 0.98, alpha: min(alpha, 0.4)))
+                ctx.fill(CGRect(x: x, y: rows - 1 - row, width: 1, height: 1))
+            }
+            for row in 0..<rows {
+                // Measured from the top, so what's drawn holds still as the trail grows.
+                let along = Double(row)
+                let middle = Self.middle(width: width, slant: slant, at: Double(row) / Double(max(rows - 1, 1)))
+                let half = Double(width) / 2 * min(1, 0.25 + along / 12)
+                let left = Int((middle - half * (0.65 + 0.35 * wobble(along * 0.23 + seed))).rounded())
+                let right = Int((middle + half * (0.65 + 0.35 * wobble(along * 0.19 + seed * 1.7 + 4))).rounded())
+                let thinning = min(1, max(0, (along - 20) / 70))
+                for x in left...right {
+                    let lane = Double(x) - middle
+                    // Each streak has its own strength, and comes and goes along its length.
+                    let streak = wobble(lane * 1.9 + seed * 5)
+                    let presence = wobble(along * 0.07 + lane * 0.8 + seed * 2)
+                    guard presence > 0.32 + 0.35 * thinning else { continue }
+                    let across = abs(lane) / max(half, 1)
+                    var alpha = (0.03 + 0.11 * streak * streak) * (1 - 0.5 * across * across) * (1 - 0.55 * thinning)
+                    // Beads of water caught along the edges, here and there.
+                    if (x == left || x == right), wobble(along * 0.6 + Double(x) + seed) > 0.62 { alpha += 0.12 }
+                    pixel(x, row, alpha)
+                }
+            }
+            // Runs dripping down from near the edges, each ending in a bead.
+            for i in 0..<4 {
+                let start = 6 + i * 10 + Int(wobble(seed + Double(i) * 5) * 6)
+                guard start < rows - 2 else { continue }
+                let middle = Self.middle(width: width, slant: slant, at: Double(start) / Double(max(rows - 1, 1)))
+                let side: Double = i % 2 == 0 ? -1 : 1
+                let x = Int((middle + side * Double(width) * (0.22 + 0.15 * wobble(seed + Double(i)))).rounded())
+                let length = 3 + Int(wobble(seed * 2 + Double(i)) * 7)
+                for row in start..<min(rows, start + length) { pixel(x, row, 0.13) }
+                let end = min(rows - 1, start + length)
+                pixel(x, end, 0.3)
+                pixel(x + 1, end, 0.22)
+                pixel(x, end - 1, 0.2)
+            }
+            return ctx.makeImage()
+        }
+
+        /// The trail's centre at `p` of the way down: under the mouth at the top, under the fish at the bottom.
+        static func middle(width: Int, slant: Int, at p: Double) -> Double {
+            Double(margin) + Double(width) / 2 + Double(slant) * p - Double(min(slant, 0))
+        }
     }
 
     // MARK: Drops on the glass
