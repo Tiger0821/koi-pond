@@ -5,7 +5,7 @@ import KoiPondCore
 import UniformTypeIdentifiers
 
 /// `KoiPond --snapshot out.png [--weather sunset] [--quality pixel] [--behavior curious]
-///  [--size 1512x982] [--scale 2] [--seconds 8] [--feed 700,500] [--touch 700,500] [--touch-age 0.5]`
+///  [--size 1512x982] [--scale 2] [--seconds 8] [--feed 700,500] [--touch 700,500] [--touch-age 0.5] [--beat 120]`
 /// renders one frame offscreen without opening any windows.
 enum SnapshotCommand {
     static func runIfRequested() -> Bool {
@@ -42,7 +42,12 @@ enum SnapshotCommand {
         }
         let renderer = PondRenderer(ctx: ctx, size: worldSize, backingScale: scale, settings: settings, seed: 42)
         if let feed = point("--feed") { renderer.pond.dropFood(at: feed, count: 10) }
-        for _ in 0..<Int(seconds * 30) { renderer.advance(dt: 1 / 30) }
+        let bpm = value("--beat").flatMap(Float.init)
+        for frame in 0..<Int(seconds * 60) {
+            // `--beat 120` plays a steady beat at full loudness, for seeing the fish dance.
+            if let bpm { renderer.pond.music = PondMusic(level: 1, beats: Int(Float(frame) / 60 * bpm / 60)) }
+            renderer.advance(dt: 1 / 60)
+        }
         if let touch = point("--touch") {
             renderer.pond.touch(at: touch)
             let age = value("--touch-age").flatMap(Float.init) ?? 0.5

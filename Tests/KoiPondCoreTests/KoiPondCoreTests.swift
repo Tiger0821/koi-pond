@@ -357,3 +357,49 @@ final class BorrowedKoiTests: XCTestCase {
         XCTAssertGreaterThan(pond.ripples.count, ripples)
     }
 }
+
+final class DanceMovesTests: XCTestCase {
+    func testHeadbangEasesInSpringsBackAndSettles() {
+        let pond = Pond(size: SIMD2(800, 600), seed: 3)
+        pond.configure(PondConfig(koiCount: 2))
+        pond.music = PondMusic(level: 1, beats: 1)
+        pond.step(dt: 0.01)
+        XCTAssertLessThan(pond.bang, 0.05, "no jump on the beat itself")
+        var peak: Float = 0, deepest: Float = 0
+        for _ in 0..<60 {
+            pond.step(dt: 1 / 60)
+            peak = max(peak, pond.bang)
+            deepest = min(deepest, pond.bang)
+        }
+        XCTAssertGreaterThan(peak, 0.4, "squashes")
+        XCTAssertLessThan(deepest, -0.1, "then stretches as it springs back")
+        for _ in 0..<60 { pond.step(dt: 1 / 60) }
+        XCTAssertLessThan(abs(pond.bang), 0.02, "and settles")
+    }
+
+    func testDiscoSpinAboutTwiceAMinuteNeverBackToBack() {
+        let pond = Pond(size: SIMD2(800, 600), seed: 8)
+        pond.configure(PondConfig(koiCount: 2))
+        var starts: [Float] = [], clock: Float = 0, beats = 0, spinning = false
+        // Ten minutes at 120 BPM.
+        while clock < 600 {
+            if clock >= Float(beats) * 0.5 { beats += 1; pond.music = PondMusic(level: 1, beats: beats) }
+            pond.step(dt: 1 / 30)
+            clock += 1 / 30
+            if pond.spinAge != nil, !spinning { starts.append(clock) }
+            spinning = pond.spinAge != nil
+        }
+        XCTAssertTrue((8...32).contains(starts.count), "\(starts.count) spins in ten minutes")
+        XCTAssertGreaterThanOrEqual(zip(starts.dropFirst(), starts).map { $0 - $1 }.min() ?? 99, 12)
+        XCTAssertEqual(pond.spinAngle(seed: 1), pond.spinAge == nil ? 0 : pond.spinAngle(seed: 1))
+    }
+
+    func testNoSpinInSilence() {
+        let pond = Pond(size: SIMD2(800, 600), seed: 8)
+        for beat in 1...400 {
+            pond.music = PondMusic(level: 0, beats: beat)
+            for _ in 0..<15 { pond.step(dt: 1 / 30) }
+            XCTAssertNil(pond.spinAge)
+        }
+    }
+}

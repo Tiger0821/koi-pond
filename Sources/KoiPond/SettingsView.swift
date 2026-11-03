@@ -239,7 +239,7 @@ private struct NowPlayingTab: View {
                 if store.settings.danceToMusic {
                     LabeledContent("Status", value: beat.status)
                 }
-                Text("While Music plays, the koi and small fish rock from side to side on the beat and swim livelier in the loud parts. Koi Pond listens to Music's sound only, measures it and throws it away; nothing is recorded. The first time, macOS asks whether Koi Pond may hear other apps' audio.")
+                Text("While Music plays, the fish headbang to the beat, squashing and springing back with a jolt of the head, and every half minute or so the whole pond does a disco spin. Koi Pond listens to Music's sound only, measures it and throws it away; nothing is recorded. The first time, macOS asks whether Koi Pond may hear other apps' audio.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

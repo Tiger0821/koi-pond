@@ -105,8 +105,11 @@ and sinks with a splash (Settings › Now Playing › Song change). Previews:
 
 ## Dancing and dragging
 
-While Music plays, the koi and small fish rock from side to side on the beat, wriggle harder and swim
-livelier in the loud parts (Settings › Now Playing › Dance). Koi Pond hears only Music's audio, through a
+While Music plays, the koi and small fish headbang: on each beat they squash short and fat (easing in
+over 80 ms, so nothing jumps), spring back long and thin, and jolt their heads one way and then the other,
+swimming a little livelier in the loud parts. About once every 30 seconds of dancing the whole pond does a
+disco spin, each fish a beat-long turn with a flash on its scales (Settings › Now Playing › Dance). The
+moves are drawn, never swum, so feeding, dragging and the song card are unaffected. Koi Pond hears only Music's audio, through a
 Core Audio process tap (macOS 14.2+; on macOS 26+ it follows Music by bundle ID), and only while a song
 plays: each buffer goes through a small bass-energy beat detector (`BeatDetector`) and is dropped. macOS
 asks once for audio capture (Privacy & Security › Screen & System Audio Recording).

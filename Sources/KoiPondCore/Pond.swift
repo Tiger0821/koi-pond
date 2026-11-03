@@ -65,10 +65,17 @@ public final class Pond {
     private var schoolTimers: [Float] = []
     private var rainBudget: Float = 0
     private var lastBeats = 0
-    /// 1 on a beat, fading before the next.
-    private var beatPulse: Float = 0
-    /// Flips every beat, so the fish rock from side to side.
-    private var beatSide: Float = 1
+    /// Seconds since the last beat.
+    private var sinceBeat: Float = 10
+    /// The headbang on the beat: positive squashes the fish short and fat, negative stretches it as it
+    /// springs back. Scaled by how loud the song is; 0 in silence.
+    public private(set) var bang: Float = 0
+    /// Seconds into a disco spin, while one is running; about one every 30 seconds of dancing.
+    public private(set) var spinAge: Float?
+    private var sinceSpin: Float = 0
+    public static let spinLength: Float = 0.7
+    /// Flips every beat, so the head jolts one way and then the other.
+    public private(set) var beatSide: Float = 1
     /// The koi held by the cursor, where the cursor is, and how fast the koi is being moved.
     private var held: (index: Int, target: SIMD2<Float>, velocity: SIMD2<Float>)?
     /// The koi off charging the viewer (see `borrowKoi`), hidden from the pond until it's returned.
@@ -341,12 +348,43 @@ public final class Pond {
     }
 
     private func updateMusic(_ dt: Float) {
+        sinceBeat += dt
+        sinceSpin += dt
         if music.beats != lastBeats {
+            let gap = sinceBeat
             lastBeats = music.beats
-            beatPulse = 1
             beatSide = -beatSide
+            sinceBeat = 0
+            // Now and then the whole pond spins: on average once every 30 seconds of dancing, never two
+            // within 12 seconds of each other.
+            if spinAge == nil, groove > 0.25, sinceSpin > 12, rng.float(in: 0...1) < min(gap, 2) / 30 {
+                spinAge = 0
+                sinceSpin = 0
+            }
         }
-        beatPulse = max(0, beatPulse - dt * 3.5)
+        if let age = spinAge { spinAge = age + dt > Self.spinLength + 0.3 ? nil : age + dt }
+        // Headbang: the squash eases in over 80 ms (so nothing jumps, even on slow songs), springs back
+        // into a stretch and settles within half a second.
+        let attack = min(sinceBeat / 0.08, 1)
+        bang = groove * attack * attack * (3 - 2 * attack) * exp(-sinceBeat / 0.25) * cos(2 * .pi * 1.5 * sinceBeat)
+    }
+
+    /// How far round a fish is in the current disco spin, in radians; each starts a little after the
+    /// others, by its seed, so the pond turns in a ripple rather than in lockstep.
+    public func spinAngle(seed: Float) -> Float {
+        spinProgress(seed: seed) * 2 * .pi
+    }
+
+    /// 0…1 at the height of a fish's spin, for the flash on its scales.
+    public func spinFlash(seed: Float) -> Float {
+        sin(spinProgress(seed: seed) * .pi)
+    }
+
+    private func spinProgress(seed: Float) -> Float {
+        guard let spinAge else { return 0 }
+        let delay = (seed * 0.618).truncatingRemainder(dividingBy: 1) * 0.25
+        let p = min(max((spinAge - delay) / Self.spinLength, 0), 1)
+        return p * p * (3 - 2 * p)
     }
 
     /// How strongly the fish dance: not at all in silence, fully in the song's loud parts.
@@ -423,12 +461,10 @@ public final class Pond {
                 if d < minD && d > 0.01 { desired += away / d * (minD - d) / minD * 2.5 }
             }
 
-            // Rock with the music: a push to alternate sides on every beat and a little more pace.
-            if groove > 0 {
-                desired += SIMD2(-forward.y, forward.x) * beatSide * beatPulse * groove * 2.2
-                cruise *= 1 + groove * 0.35
-            }
-            k.dance += (groove * (0.35 + 0.65 * beatPulse) - k.dance) * min(1, dt * 12)
+            // With the music, a little more pace, more on each squash; the speed eases towards it, so the
+            // koi surges rather than jumps. The headbang itself is drawn, not swum.
+            if groove > 0 { cruise *= 1 + groove * 0.15 + 0.25 * max(bang, 0) }
+            k.dance += (groove - k.dance) * min(1, dt * 6)
             k.lift = max(0, k.lift - dt * 2)
 
             if k.startle > 0 {
@@ -533,10 +569,6 @@ public final class Pond {
                 f.startle = max(0, f.startle - dt * 1.5)
             }
             acc += wallPush(f.pos, margin: 50) * 260
-            if groove > 0 {
-                let side = SIMD2(-f.vel.y, f.vel.x) / max(simd_length(f.vel), 0.001)
-                acc += side * beatSide * beatPulse * groove * 260
-            }
 
             f.vel += acc * dt
             let speed = simd_length(f.vel)
