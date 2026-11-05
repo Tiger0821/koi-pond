@@ -4,7 +4,7 @@
 
 ## Download
 
-**[Download Koi Pond for Mac (KoiPond.dmg)](https://github.com/Tiger0821/KoiFishWallpaper/releases/latest/download/KoiPond.dmg)**:
+**[Download Koi Pond for Mac (KoiPond.dmg)](https://github.com/Tiger0821/koi-pond/releases/latest/download/KoiPond.dmg)**:
 version 1.0.1, about 2 MB, for macOS 14 or later on Apple silicon.
 
 1. Open `KoiPond.dmg` and drag **Koi Pond** onto **Applications**.
@@ -16,7 +16,7 @@ version 1.0.1, about 2 MB, for macOS 14 or later on Apple silicon.
 Koi Pond may ask to control Music (for the Now Playing player) and to hear Music's sound (so the fish can
 dance to the beat). Both are optional: Settings › General › Privacy › "Listen to Music so the fish can dance"
 turns listening off, and then Koi Pond never hears any sound. Every version is on the
-[releases page](https://github.com/Tiger0821/KoiFishWallpaper/releases).
+[releases page](https://github.com/Tiger0821/koi-pond/releases).
 
 ## About
 
@@ -173,3 +173,8 @@ the icons. A global mouse monitor observes copies of clicks sent to other apps; 
 (frames, layers and owners only) decides whether a click landed on bare desktop. None of this needs
 Screen Recording, Accessibility or Input Monitoring permission. Settings are stored in
 UserDefaults; the log is at `~/Library/Logs/KoiPond.log`.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The lock screen technique comes from the MIT-licensed
+[Animated](https://github.com/vlzuiev/animated).

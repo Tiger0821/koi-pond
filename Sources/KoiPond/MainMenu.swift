@@ -50,7 +50,7 @@ enum MainMenu {
 
         let help = NSMenu(title: "Help")
         help.addItem(ClosureMenuItem("Koi Pond on GitHub", key: "") {
-            if let url = URL(string: "https://github.com/Tiger0821/KoiFishWallpaper") { NSWorkspace.shared.open(url) }
+            if let url = URL(string: "https://github.com/Tiger0821/koi-pond") { NSWorkspace.shared.open(url) }
         })
         add(help, to: main)
         NSApp.helpMenu = help
