@@ -3,45 +3,149 @@ import KoiPondCore
 import ServiceManagement
 import SwiftUI
 
-final class SettingsWindowController {
-    private var window: NSWindow?
+/// The panes of the Settings window, in toolbar order.
+enum SettingsPane: String, CaseIterable {
+    case general, pond, fish, plants, music, lockScreen, performance
 
-    func show(store: SettingsStore, lockScreen: LockScreenInstaller, screenSaver: ScreenSaverInstaller, music: MusicPlayer,
-              beat: MusicBeat) {
-        if window == nil {
-            let view = SettingsView(store: store, lockScreen: lockScreen, screenSaver: screenSaver, music: music, beat: beat)
-            let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-            window.title = "Koi Pond Settings"
-            window.styleMask = [.titled, .closable, .miniaturizable]
-            window.isReleasedWhenClosed = false
-            window.center()
-            self.window = window
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .pond: "Pond"
+        case .fish: "Fish"
+        case .plants: "Plants"
+        case .music: "Music"
+        case .lockScreen: "Lock Screen"
+        case .performance: "Performance"
         }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .pond: "drop.fill"
+        case .fish: "fish.fill"
+        case .plants: "leaf.fill"
+        case .music: "music.note"
+        case .lockScreen: "lock.fill"
+        case .performance: "gauge.with.dots.needle.33percent"
+        }
+    }
+
+    /// The pane's height, so the window fits each pane the way Mac settings windows do.
+    var height: CGFloat {
+        switch self {
+        case .general: 640
+        case .pond: 668
+        case .fish: 430
+        case .plants: 440
+        case .music: 640
+        case .lockScreen: 452
+        case .performance: 450
+        }
+    }
+
+    static let width: CGFloat = 560
+}
+
+/// The Settings window, as on every Mac: opened from the App menu with Command-Comma, a toolbar of panes that
+/// always shows which is open, the window titled after the pane and sized to it, no minimize or zoom, and
+/// reopening on the pane last used.
+final class SettingsWindowController {
+    private let store: SettingsStore
+    private let lockScreen: LockScreenInstaller
+    private let screenSaver: ScreenSaverInstaller
+    private let music: MusicPlayer
+    private let beat: MusicBeat
+    private var window: NSWindow?
+    private var tabs: SettingsTabs?
+
+    var isVisible: Bool { window?.isVisible ?? false }
+
+    init(store: SettingsStore, lockScreen: LockScreenInstaller, screenSaver: ScreenSaverInstaller, music: MusicPlayer, beat: MusicBeat) {
+        self.store = store
+        self.lockScreen = lockScreen
+        self.screenSaver = screenSaver
+        self.music = music
+        self.beat = beat
+    }
+
+    func show(pane: SettingsPane? = nil) {
+        if window == nil { build() }
+        if let pane { tabs?.select(pane) }
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
     }
-}
 
-struct SettingsView: View {
-    @ObservedObject var store: SettingsStore
-    let lockScreen: LockScreenInstaller
-    let screenSaver: ScreenSaverInstaller
-    let music: MusicPlayer
-    let beat: MusicBeat
-
-    var body: some View {
-        TabView {
-            PondTab(store: store).tabItem { Label("Pond", systemImage: "drop.fill") }
-            AnimalsTab(store: store).tabItem { Label("Animals", systemImage: "fish.fill") }
-            BloomsTab(store: store).tabItem { Label("Blooms", systemImage: "camera.macro") }
-            NowPlayingTab(store: store, music: music, beat: beat).tabItem { Label("Now Playing", systemImage: "music.note") }
-            PerformanceTab(store: store).tabItem { Label("Performance", systemImage: "gauge.with.dots.needle.33percent") }
-            GeneralTab(store: store, lockScreen: lockScreen, screenSaver: screenSaver)
-                .tabItem { Label("General", systemImage: "gearshape") }
+    private func build() {
+        // Read before adding the panes: adding the first one selects it, which would overwrite it.
+        let last = SettingsPane(rawValue: UserDefaults.standard.string(forKey: SettingsTabs.lastPaneKey) ?? "") ?? .general
+        let tabs = SettingsTabs()
+        tabs.tabStyle = .toolbar
+        tabs.transitionOptions = [.allowUserInteraction]
+        for pane in SettingsPane.allCases {
+            let host = NSHostingController(rootView: content(for: pane))
+            host.sizingOptions = []
+            host.title = pane.title
+            host.preferredContentSize = NSSize(width: SettingsPane.width, height: pane.height)
+            host.view.frame = NSRect(x: 0, y: 0, width: SettingsPane.width, height: pane.height)
+            let item = NSTabViewItem(viewController: host)
+            item.label = pane.title
+            item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
+            tabs.addTabViewItem(item)
         }
-        .frame(width: 560, height: 470)
+        let window = NSWindow(contentViewController: tabs)
+        window.styleMask = [.titled, .closable]
+        window.toolbarStyle = .preference
+        window.isReleasedWhenClosed = false
+        tabs.select(last)
+        tabs.remembers = true
+        window.center()
+        self.window = window
+        self.tabs = tabs
+    }
+
+    private func content(for pane: SettingsPane) -> AnyView {
+        switch pane {
+        case .general: AnyView(GeneralPane(store: store))
+        case .pond: AnyView(PondPane(store: store))
+        case .fish: AnyView(FishPane(store: store))
+        case .plants: AnyView(PlantsPane(store: store))
+        case .music: AnyView(MusicPane(store: store, music: music, beat: beat))
+        case .lockScreen: AnyView(LockScreenPane(store: store, lockScreen: lockScreen, screenSaver: screenSaver))
+        case .performance: AnyView(PerformancePane(store: store))
+        }
     }
 }
+
+/// Keeps the window sized to the open pane, top edge fixed, and remembers the pane.
+private final class SettingsTabs: NSTabViewController {
+    static let lastPaneKey = "SettingsPane"
+    /// Off while the panes are being added.
+    var remembers = false
+
+    func select(_ pane: SettingsPane) {
+        guard let index = SettingsPane.allCases.firstIndex(of: pane) else { return }
+        selectedTabViewItemIndex = index
+        fit(pane, animate: false)
+    }
+
+    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: tabViewItem)
+        guard let item = tabViewItem, let index = tabView.tabViewItems.firstIndex(of: item) else { return }
+        let pane = SettingsPane.allCases[index]
+        if remembers { UserDefaults.standard.set(pane.rawValue, forKey: Self.lastPaneKey) }
+        fit(pane, animate: view.window?.isVisible ?? false)
+    }
+
+    private func fit(_ pane: SettingsPane, animate: Bool) {
+        guard let window = view.window else { return }
+        let size = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: SettingsPane.width, height: pane.height)).size
+        let frame = NSRect(x: window.frame.minX, y: window.frame.maxY - size.height, width: size.width, height: size.height)
+        if window.frame != frame { window.setFrame(frame, display: true, animate: animate) }
+    }
+}
+
+// MARK: Shared pieces
 
 extension SettingsStore {
     func binding<T>(_ keyPath: WritableKeyPath<PondSettings, T>) -> Binding<T> {
@@ -54,7 +158,7 @@ extension SettingsStore {
     }
 }
 
-private extension Color {
+extension Color {
     init(_ rgb: RGB) {
         self.init(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b)
     }
@@ -68,7 +172,8 @@ private struct PercentSlider: View {
         LabeledContent(title) {
             HStack {
                 Slider(value: $value, in: 0...1)
-                Text("\(Int((value * 100).rounded()))%").monospacedDigit().frame(width: 40, alignment: .trailing)
+                Text("\(Int((value * 100).rounded()))%").monospacedDigit().foregroundStyle(.secondary)
+                    .frame(width: 40, alignment: .trailing)
             }
         }
     }
@@ -76,23 +181,28 @@ private struct PercentSlider: View {
 
 private struct CountSlider: View {
     let title: String
+    let symbol: String
     @Binding var value: Double
     let range: ClosedRange<Double>
 
     var body: some View {
-        LabeledContent(title) {
+        LabeledContent {
             HStack {
-                Slider(value: $value, in: range, step: 1)
-                Text("\(Int(value))").monospacedDigit().frame(width: 40, alignment: .trailing)
+                // No step: a tick mark for every fish is just noise. The binding rounds to whole numbers.
+                Slider(value: $value, in: range)
+                Text("\(Int(value))").monospacedDigit().foregroundStyle(.secondary).frame(width: 32, alignment: .trailing)
             }
+        } label: {
+            Label(title, systemImage: symbol)
         }
     }
 }
 
-private struct PondTab: View {
+/// The water color presets, plus any color.
+struct WaterSwatches: View {
     @ObservedObject var store: SettingsStore
 
-    private var waterColor: Binding<Color> {
+    private var custom: Binding<Color> {
         Binding(get: { Color(store.settings.waterColor) }, set: { color in
             guard let c = NSColor(color).usingColorSpace(.sRGB) else { return }
             store.update { $0.waterColor = RGB(Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent)) }
@@ -100,238 +210,114 @@ private struct PondTab: View {
     }
 
     var body: some View {
-        Form {
-            Section("Weather") {
-                Picker("Weather", selection: store.binding(\.weather)) {
-                    ForEach(WeatherPreset.allCases, id: \.self) { Text($0.title).tag($0) }
+        HStack(spacing: 8) {
+            ForEach(WaterPreset.allCases, id: \.self) { preset in
+                let chosen = store.settings.waterColor == preset.color
+                Button {
+                    store.update { $0.waterColor = preset.color }
+                } label: {
+                    Circle().fill(Color(preset.color)).frame(width: 20, height: 20)
+                        .overlay(Circle().stroke(chosen ? Color.accentColor : .primary.opacity(0.2), lineWidth: chosen ? 2.5 : 1)
+                            .padding(chosen ? -3 : 0))
                 }
-                Text("Follow Device Time drifts from dawn to moonlight with your clock.")
-                    .font(.caption).foregroundStyle(.secondary)
+                .buttonStyle(.plain)
+                .help(preset.title)
+                .accessibilityLabel(preset.title)
             }
-            Section("Water") {
-                LabeledContent("Color") {
-                    HStack(spacing: 8) {
-                        ForEach(WaterPreset.allCases, id: \.self) { preset in
-                            Button {
-                                store.update { $0.waterColor = preset.color }
-                            } label: {
-                                Circle().fill(Color(preset.color)).frame(width: 18, height: 18)
-                                    .overlay(Circle().stroke(.primary.opacity(0.2)))
-                            }
-                            .buttonStyle(.plain)
-                            .help(preset.title)
-                        }
-                        ColorPicker("", selection: waterColor, supportsOpacity: false).labelsHidden()
-                    }
-                }
-                PercentSlider(title: "Clarity", value: store.binding(\.clarity))
-                Toggle("Touch ripples", isOn: store.binding(\.touchRipples))
-                Toggle("Feed the fish (click the water to drop food)", isOn: store.binding(\.feedTheFish))
-            }
-            Section("Currents") {
-                Toggle("Currents", isOn: store.binding(\.currentsEnabled))
-                PercentSlider(title: "Strength", value: store.binding(\.currentStrength))
-                    .disabled(!store.settings.currentsEnabled)
-                PercentSlider(title: "Speed", value: store.binding(\.currentSpeed))
-                    .disabled(!store.settings.currentsEnabled)
-                PercentSlider(title: "Core glow", value: store.binding(\.coreGlow))
-            }
+            ColorPicker("Custom color", selection: custom, supportsOpacity: false)
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 34)
+                .help("Any color")
         }
-        .formStyle(.grouped)
     }
 }
 
-private struct AnimalsTab: View {
-    @ObservedObject var store: SettingsStore
+/// A short explanation under a group of settings, left-aligned like the rest of the form.
+private struct Note: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
 
     var body: some View {
-        Form {
-            Section("Counts") {
-                CountSlider(title: "Koi", value: store.count(\.koiCount), range: 0...40)
-                CountSlider(title: "Small fish", value: store.count(\.smallFishCount), range: 0...60)
-                CountSlider(title: "Turtles", value: store.count(\.turtleCount), range: 0...4)
-            }
-            Section("Behavior") {
-                Picker("Koi behavior", selection: store.binding(\.behavior)) {
-                    ForEach(FishBehavior.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                Text(store.settings.behavior.summary).font(.caption).foregroundStyle(.secondary)
-                LabeledContent("Motion speed") {
-                    HStack {
-                        Slider(value: store.binding(\.motionSpeed), in: 0.25...2)
-                        Text(String(format: "%.2g×", store.settings.motionSpeed)).monospacedDigit()
-                            .frame(width: 40, alignment: .trailing)
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
+        Text(text).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-private struct BloomsTab: View {
+/// Puts one pane's settings back to how they come.
+private struct RestoreDefaults: View {
     @ObservedObject var store: SettingsStore
+    let group: SettingsGroup
 
     var body: some View {
-        Form {
-            Section("Lily pads") {
-                CountSlider(title: "Lily pads", value: store.count(\.lilyPadCount), range: 0...40)
-            }
-            Section("Flowers") {
-                Picker("Style", selection: store.binding(\.flowerStyle)) {
-                    ForEach(FlowerStyle.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                CountSlider(title: "Flowers", value: store.count(\.flowerCount), range: 0...15)
-                Text("Flowers grow on lily pads, so there are never more flowers than pads.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Underwater plants") {
-                CountSlider(title: "Plants", value: store.count(\.plantCount), range: 0...60)
-            }
+        HStack {
+            Spacer()
+            Button("Restore Defaults") { store.update { $0.restoreDefaults(group) } }
         }
-        .formStyle(.grouped)
     }
 }
 
-private struct NowPlayingTab: View {
+// MARK: Panes
+
+private struct GeneralPane: View {
     @ObservedObject var store: SettingsStore
-    @ObservedObject var music: MusicPlayer
-    @ObservedObject var beat: MusicBeat
-
-    var body: some View {
-        Form {
-            Section("Apple Music") {
-                Toggle("Show what's playing on the desktop", isOn: store.binding(\.nowPlaying))
-                LabeledContent("Move to corner") {
-                    HStack {
-                        ForEach(ScreenCorner.allCases, id: \.self) { corner in
-                            Button {
-                                store.update {
-                                    $0.nowPlayingX = corner.fraction.x
-                                    $0.nowPlayingY = corner.fraction.y
-                                }
-                            } label: { Image(systemName: corner.symbol) }
-                            .help(corner.title)
-                        }
-                    }
-                }
-                .disabled(!store.settings.nowPlaying)
-                Picker("Size", selection: store.binding(\.nowPlayingSize)) {
-                    ForEach(NowPlayingSize.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .disabled(!store.settings.nowPlaying)
-                if store.settings.nowPlaying {
-                    LabeledContent("Status", value: music.status)
-                    if music.access == .denied {
-                        Button("Open Automation Settings…") { MusicPlayer.openAutomationSettings() }
-                    }
-                }
-                Text("A pixel-art player with the song's cover, title and artist, and previous, play/pause and next buttons. It shows on your main display, above the desktop icons, while Music has a song playing or paused. Drag it by its cover or title to move it: it snaps to the screen's edges and middle, and to a grid elsewhere. The first time, macOS asks whether Koi Pond may control Music.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Song change") {
-                Toggle("A koi delivers each new song", isOn: store.binding(\.songCard))
-                Text("When the song changes, a koi bursts out of the middle of the pond head-first, smacks into the glass with a big card of the new song, then slides down and drops back in. The card shows the title, then the cover slides in pixelated and sharpens, then the artist; after a few seconds it sinks with a splash. The desktop player changes songs with one of four transitions, picked at random each time. With Reduce Motion on, the flash and shake are left out.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Dance") {
-                Toggle("Fish dance to the music", isOn: store.binding(\.danceToMusic))
-                if store.settings.danceToMusic {
-                    LabeledContent("Status", value: beat.status)
-                }
-                Text("While Music plays, the fish headbang to the beat, squashing and springing back with a jolt of the head, and every half minute or so the whole pond does a disco spin. Koi Pond listens to Music's sound only, measures it and throws it away; nothing is recorded. The first time, macOS asks whether Koi Pond may hear other apps' audio.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-private struct PerformanceTab: View {
-    @ObservedObject var store: SettingsStore
-
-    var body: some View {
-        Form {
-            Section("Rendering") {
-                Picker("Quality", selection: store.binding(\.quality)) {
-                    ForEach(RenderQuality.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                Picker("Frame rate", selection: store.binding(\.frameRate)) {
-                    ForEach(FrameRate.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                Text("Pixel draws a quarter of the pixels Balanced does and is the lightest on battery.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Saving power") {
-                Picker("On battery", selection: store.binding(\.onBattery)) {
-                    ForEach(BatteryMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                Toggle("Pause in Low Power Mode (otherwise slow down)", isOn: store.binding(\.pauseInLowPower))
-                Toggle("Pause a display while app windows cover it", isOn: store.binding(\.pauseWhenCovered))
-                Text("The pond always rests while the Mac sleeps or the screen is locked. Pausing behind windows also freezes it while you reveal the desktop by clicking the wallpaper, because macOS still reports the windows in place.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-private struct GeneralTab: View {
-    @ObservedObject var store: SettingsStore
-    @ObservedObject var lockScreen: LockScreenInstaller
-    @ObservedObject var screenSaver: ScreenSaverInstaller
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var widgetsHidden = DesktopWidgets.hidden
     @State private var loginError: String?
+    @State private var confirmReset = false
 
     var body: some View {
         Form {
-            Section("Lock screen") {
-                Toggle("Animated lock screen", isOn: store.binding(\.animatedLockScreen))
-                if store.settings.animatedLockScreen {
-                    LabeledContent("Status", value: lockScreen.statusText)
-                    Button("Open Wallpaper Settings…") { LockScreenInstaller.openWallpaperSettings() }
+            Section {
+                Picker("Show Koi Pond in", selection: store.binding(\.presence)) {
+                    ForEach(AppPresence.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                Text("Records a 3-minute pond video into one of your downloaded Apple aerials and makes that aerial your wallpaper on every Space, so it plays on the lock screen, in Mission Control and while switching Spaces. Turning this off puts Apple's video and your previous wallpaper back. Needs macOS 26 or later.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Screen saver") {
-                Toggle("Pond screen saver", isOn: store.binding(\.pondScreenSaver))
-                if store.settings.pondScreenSaver {
-                    LabeledContent("Status", value: screenSaver.status)
-                    Button("Open Screen Saver Settings…") { ScreenSaverInstaller.openScreenSaverSettings() }
-                }
-                Text("Runs the live pond, with your settings, as the screen saver on every Space. Turning this off puts your previous screen saver back.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Desktop") {
-                Toggle("Hide macOS widgets", isOn: Binding(get: { widgetsHidden }, set: { hidden in
-                    DesktopWidgets.setHidden(hidden)
-                    widgetsHidden = hidden
-                }))
-                Text("Hides the calendar, weather, clock and other macOS widgets on the desktop so the pond is clear. It's the same switch as System Settings › Desktop & Dock › Show Widgets › On Desktop. Koi Pond's own Now Playing player is under Now Playing.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Startup") {
-                Toggle("Launch at login", isOn: Binding(get: { launchAtLogin }, set: setLaunchAtLogin))
+                Toggle("Open at login", isOn: Binding(get: { launchAtLogin }, set: setLaunchAtLogin))
                 if let loginError {
                     Text(loginError).font(.caption).foregroundStyle(.red)
                 }
+                Toggle("Koi charge when Koi Pond opens", isOn: store.binding(\.launchCharge))
+            } header: {
+                Text("App")
+            } footer: {
+                Note("Opening Koi Pond sends ten koi crashing into your screen. It stays quiet when it opens at login.")
             }
-            Section("Pond") {
-                Toggle("Pause pond", isOn: store.binding(\.paused))
-                Button("Reset all settings") { store.update { $0 = PondSettings() } }
+            Section {
+                Toggle("Pause the pond", isOn: store.binding(\.paused))
+                Toggle("Hide macOS widgets on the desktop", isOn: Binding(get: { widgetsHidden }, set: { hidden in
+                    DesktopWidgets.setHidden(hidden)
+                    widgetsHidden = hidden
+                }))
+            } header: {
+                Text("Desktop")
+            } footer: {
+                Note("Hiding widgets is the same switch as System Settings › Desktop & Dock › Show Widgets.")
             }
-            Section("Privacy") {
-                Text("Koi Pond needs no Screen Recording, Accessibility or Input Monitoring permission. It reads click positions and window frames only to tell desktop clicks apart. The only thing that leaves your Mac: when Music has no cover for a song, the Now Playing player asks Apple's iTunes Search for it by song and artist name.")
-                    .font(.caption).foregroundStyle(.secondary)
+            Section {
+                Toggle("Listen to Music so the fish can dance", isOn: store.binding(\.danceToMusic))
+                DisclosureGroup("What Koi Pond can see and hear") {
+                    Text("While a song plays and this is on, Koi Pond hears Music's sound, and only Music's (never the microphone or other apps), to find the beat; each moment of sound is measured and thrown away, and nothing is recorded or saved. It doesn't use Screen Recording, Accessibility or Input Monitoring: it reads click positions and window frames only to tell desktop clicks apart. The one thing that leaves your Mac: when Music has no cover for a song, the Now Playing player asks Apple's iTunes Search for it by song and artist name.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            } header: {
+                Text("Privacy")
+            } footer: {
+                Note("Turn listening off and Koi Pond never hears any sound; the fish just swim, and the player still shows what's playing.")
+            }
+            Section {
+                HStack {
+                    Spacer()
+                    Button("Reset All Settings…", role: .destructive) { confirmReset = true }
+                }
             }
         }
         .formStyle(.grouped)
-        .onAppear {
-            lockScreen.refreshSelection()
-            widgetsHidden = DesktopWidgets.hidden
+        .confirmationDialog("Reset all settings?", isPresented: $confirmReset) {
+            Button("Reset All Settings", role: .destructive) { store.update { $0 = PondSettings() } }
+        } message: {
+            Text("Everything goes back to how Koi Pond comes, and the pond lock screen and screen saver are turned off.")
         }
+        .onAppear { widgetsHidden = DesktopWidgets.hidden }
     }
 
     private func setLaunchAtLogin(_ on: Bool) {
@@ -345,5 +331,258 @@ private struct GeneralTab: View {
         if SMAppService.mainApp.status == .requiresApproval {
             loginError = "Approve Koi Pond in System Settings › General › Login Items."
         }
+    }
+}
+
+private struct PondPane: View {
+    @ObservedObject var store: SettingsStore
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Weather", selection: store.binding(\.weather)) {
+                    ForEach(WeatherPreset.allCases, id: \.self) { Label($0.title, systemImage: $0.symbol).tag($0) }
+                }
+            } header: {
+                Text("Weather")
+            } footer: {
+                Note("Follow Device Time moves from dawn to moonlight with your clock.")
+            }
+            Section("Water") {
+                LabeledContent("Color") { WaterSwatches(store: store) }
+                PercentSlider(title: "Clarity", value: store.binding(\.clarity))
+            }
+            Section {
+                Toggle("Ripples where you click", isOn: store.binding(\.touchRipples))
+                Toggle("Clicking drops fish food", isOn: store.binding(\.feedTheFish))
+            } header: {
+                Text("Touch")
+            } footer: {
+                Note("Click bare desktop to touch the water. Press on a koi to pick it up and fling it.")
+            }
+            Section {
+                Toggle("Currents", isOn: store.binding(\.currentsEnabled))
+                DisclosureGroup("Advanced") {
+                    PercentSlider(title: "Strength", value: store.binding(\.currentStrength))
+                    PercentSlider(title: "Speed", value: store.binding(\.currentSpeed))
+                    PercentSlider(title: "Glow", value: store.binding(\.coreGlow))
+                }
+                .disabled(!store.settings.currentsEnabled)
+            } header: {
+                Text("Currents")
+            } footer: {
+                Note("Slow currents carry the fish and leaves along and light up the water where they run.")
+            }
+            RestoreDefaults(store: store, group: .pond)
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct FishPane: View {
+    @ObservedObject var store: SettingsStore
+
+    var body: some View {
+        Form {
+            Section("How many") {
+                CountSlider(title: "Koi", symbol: "fish.fill", value: store.count(\.koiCount), range: 0...40)
+                CountSlider(title: "Small fish", symbol: "fish", value: store.count(\.smallFishCount), range: 0...60)
+                CountSlider(title: "Turtles", symbol: "tortoise.fill", value: store.count(\.turtleCount), range: 0...4)
+            }
+            Section {
+                Picker("Koi", selection: store.binding(\.behavior)) {
+                    ForEach(FishBehavior.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                LabeledContent("Swimming speed") {
+                    HStack {
+                        Slider(value: store.binding(\.motionSpeed), in: 0.25...2)
+                        Text(String(format: "%.2g×", store.settings.motionSpeed)).monospacedDigit().foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .trailing)
+                    }
+                }
+            } header: {
+                Text("Behavior")
+            } footer: {
+                Note(store.settings.behavior.summary)
+            }
+            RestoreDefaults(store: store, group: .fish)
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct PlantsPane: View {
+    @ObservedObject var store: SettingsStore
+
+    var body: some View {
+        Form {
+            Section("Lily pads") {
+                CountSlider(title: "Lily pads", symbol: "circle.fill", value: store.count(\.lilyPadCount), range: 0...40)
+            }
+            Section {
+                Picker("Kind", selection: store.binding(\.flowerStyle)) {
+                    ForEach(FlowerStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                CountSlider(title: "Flowers", symbol: "camera.macro", value: store.count(\.flowerCount), range: 0...15)
+            } header: {
+                Text("Flowers")
+            } footer: {
+                Note("Flowers grow on lily pads, so there are never more flowers than pads.")
+            }
+            Section("Underwater") {
+                CountSlider(title: "Plants", symbol: "leaf.fill", value: store.count(\.plantCount), range: 0...60)
+            }
+            RestoreDefaults(store: store, group: .plants)
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct MusicPane: View {
+    @ObservedObject var store: SettingsStore
+    @ObservedObject var music: MusicPlayer
+    @ObservedObject var beat: MusicBeat
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Show the player on the desktop", isOn: store.binding(\.nowPlaying))
+                if store.settings.nowPlaying {
+                    Picker("Size", selection: store.binding(\.nowPlayingSize)) {
+                        ForEach(NowPlayingSize.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    LabeledContent("Move to corner") {
+                        HStack {
+                            ForEach(ScreenCorner.allCases, id: \.self) { corner in
+                                Button {
+                                    store.update {
+                                        $0.nowPlayingX = corner.fraction.x
+                                        $0.nowPlayingY = corner.fraction.y
+                                    }
+                                } label: { Image(systemName: corner.symbol) }
+                                .help(corner.title)
+                            }
+                        }
+                    }
+                    LabeledContent("Status", value: music.status)
+                    if music.access == .denied {
+                        Button("Allow Koi Pond to Control Music…") { MusicPlayer.openAutomationSettings() }
+                    }
+                }
+            } header: {
+                Text("Now Playing")
+            } footer: {
+                Note("A pixel-art Apple Music player above your desktop icons. Drag it to move it; click the cover to open Music.")
+            }
+            Section {
+                Toggle("A koi delivers each new song", isOn: store.binding(\.songCard))
+            } header: {
+                Text("Song changes")
+            } footer: {
+                Note("When the song changes, a koi smacks a big card of it onto the glass.")
+            }
+            Section {
+                Toggle("Fish dance to the music", isOn: store.binding(\.danceToMusic))
+                if store.settings.danceToMusic {
+                    Picker("Bounce", selection: store.binding(\.danceBounce)) {
+                        ForEach(DanceBounce.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    Toggle("Disco spins now and then", isOn: store.binding(\.discoSpins))
+                    LabeledContent("Status", value: beat.status)
+                }
+            } header: {
+                Text("Dance")
+            } footer: {
+                Note("On every beat the fish bounce, squashing and springing back with a jolt of the head. To find the beat Koi Pond listens to Music's sound only, and records nothing. Turn this off and it never listens at all.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct LockScreenPane: View {
+    @ObservedObject var store: SettingsStore
+    @ObservedObject var lockScreen: LockScreenInstaller
+    @ObservedObject var screenSaver: ScreenSaverInstaller
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Show the pond on the lock screen", isOn: store.binding(\.animatedLockScreen))
+                if store.settings.animatedLockScreen {
+                    LabeledContent("Status", value: lockScreen.statusText)
+                    Button("Open Wallpaper Settings…") { LockScreenInstaller.openWallpaperSettings() }
+                }
+            } header: {
+                Text("Lock screen")
+            } footer: {
+                Note("Records a 3-minute pond video into one of your downloaded Apple aerials (macOS 26 or later). Turning it off puts Apple's video and your wallpaper back.")
+            }
+            Section {
+                Toggle("Use the pond as the screen saver", isOn: store.binding(\.pondScreenSaver))
+                if store.settings.pondScreenSaver {
+                    LabeledContent("Status", value: screenSaver.status)
+                    Button("Open Screen Saver Settings…") { ScreenSaverInstaller.openScreenSaverSettings() }
+                }
+            } header: {
+                Text("Screen saver")
+            } footer: {
+                Note("Runs the live pond with your settings. Turning it off puts your previous screen saver back.")
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { lockScreen.refreshSelection() }
+    }
+}
+
+private struct PerformancePane: View {
+    @ObservedObject var store: SettingsStore
+
+    private var qualityNote: String {
+        switch store.settings.quality {
+        case .pixel: "Pixel: chunky pixel art, and the lightest on battery."
+        case .balanced: "Balanced: one pixel per point, smooth edges."
+        case .smooth: "Smooth: full Retina detail, and the most power."
+        }
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Quality", selection: store.binding(\.quality)) {
+                    ForEach(RenderQuality.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Picker("Frame rate", selection: store.binding(\.frameRate)) {
+                    ForEach(FrameRate.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("Drawing")
+            } footer: {
+                Note(qualityNote)
+            }
+            Section {
+                Picker("On battery", selection: store.binding(\.onBattery)) {
+                    ForEach(BatteryMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Toggle("Pause in Low Power Mode", isOn: store.binding(\.pauseInLowPower))
+                DisclosureGroup("Advanced") {
+                    Toggle("Pause a display while windows cover it", isOn: store.binding(\.pauseWhenCovered))
+                    Text("macOS still reports windows in place while you click the wallpaper to reveal the desktop, so this also freezes the pond you're looking at then.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            } header: {
+                Text("Battery")
+            } footer: {
+                Note("The pond always rests while the Mac sleeps or the screen is locked.")
+            }
+            RestoreDefaults(store: store, group: .performance)
+        }
+        .formStyle(.grouped)
     }
 }

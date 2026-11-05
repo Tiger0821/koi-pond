@@ -39,6 +39,8 @@ public final class PondRenderer {
         pond.behavior = s.behavior
         pond.currentsEnabled = s.currentsEnabled
         pond.currentSpeed = Float(s.currentSpeed)
+        pond.danceStrength = s.danceBounce.strength
+        pond.discoSpins = s.discoSpins
         lookTarget = s.weather.look(at: Date())
     }
 

@@ -89,6 +89,8 @@ final class SongCard {
         panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
         panel.isExcludedFromWindowsMenu = true
+        // Hide Koi Pond (Command-H) hides its windows, not what lives on the desktop.
+        panel.canHide = false
 
         let host = NSView()
         let root = CALayer()
@@ -288,7 +290,7 @@ final class SongCard {
     /// dragged by the scales and fins, each breaking up along its length; beads dotted along the wandering
     /// edges rather than an outline; narrow where the mouth first touched, thinning out further down where
     /// the fish slid fastest; and a few runs dripping on below.
-    private enum WetTrail {
+    enum WetTrail {
         static let margin = 3
 
         static func image(width: Int, rows: Int, slant: Int, seed: Double) -> CGImage? {
@@ -350,7 +352,7 @@ final class SongCard {
 
     // MARK: Drops on the glass
 
-    private static let dropImage: CGImage? = {
+    static let dropImage: CGImage? = {
         let rows = ["..X..", ".XXX.", ".XXX.", "XXXXX", "XXOXX", "XXXXX", ".XXX."]
         guard let ctx = CGContext(data: nil, width: 5, height: 7, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,

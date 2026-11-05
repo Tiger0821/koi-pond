@@ -75,28 +75,28 @@ enum InstanceBuilder {
         return out
     }
 
-    /// Headbanging to the music: squashed short and fat on the beat (keeping its volume), stretched as it
-    /// springs back, the head jolting one way and then the other; and turned, with a flash, in a disco spin.
-    /// All of it is how the fish is drawn, so it never moves the fish itself.
-    private static func dance(_ pond: Pond?, seed: Float, strength: Float) -> (length: Float, width: Float, turn: Float, flash: Float) {
-        guard let pond else { return (1, 1, 0, 0) }
+    /// Headbanging to the music: the body (not the tail) squashed short and fat on the beat, stretched as it
+    /// springs back, the head jolting one way and then the other (the shader bends these into the body
+    /// only, from `color1.w` and `color2.w`); and the whole fish turned, with a flash, in a disco spin. All of
+    /// it is how the fish is drawn, so it never moves the fish itself.
+    private static func dance(_ pond: Pond?, seed: Float, strength: Float) -> (squash: Float, jolt: Float, turn: Float, flash: Float) {
+        guard let pond else { return (0, 0, 0, 0) }
         let bang = pond.bang * strength
-        let jolt = pond.beatSide * 0.16 * max(bang, 0)
-        return (1 - 0.2 * bang, 1 + 0.24 * bang, jolt + pond.spinAngle(seed: seed), pond.spinFlash(seed: seed) * 0.35)
+        return (bang, pond.beatSide * 0.16 * max(bang, 0), pond.spinAngle(seed: seed), pond.spinFlash(seed: seed) * 0.35)
     }
 
     static func koi(_ k: Koi, pond: Pond? = nil) -> GPUInstance {
         let look = k.variety.look
         let curvature = max(-0.25, min(0.25, k.length * k.turnRate / (2 * max(k.speed, 12))))
         let moves = dance(pond, seed: k.seed, strength: k.dance)
-        let amplitude = 0.05 + min(k.speed, 70) / 70 * 0.06 + k.dance * 0.03 + abs(pond?.bang ?? 0) * 0.04
+        let amplitude = 0.05 + min(k.speed, 70) / 70 * 0.06
         // Bigger when lifted by the cursor.
-        let length = k.length * (1 + k.lift * 0.12) * moves.length
+        let length = k.length * (1 + k.lift * 0.12)
         let lit = { (c: SIMD3<Float>) in c + (SIMD3<Float>(1, 1, 1) - c) * moves.flash }
-        return GPUInstance(position: k.pos, size: [length * 0.62, length * 0.6 * moves.width], rotation: k.heading + moves.turn,
-                           kind: ShapeKind.fish.rawValue, seed: k.seed, phase: k.phase,
-                           color0: SIMD4(lit(look.base), 1), color1: SIMD4(lit(look.patch), 0), color2: SIMD4(lit(look.accent), 0),
-                           params: [length, 0.135 * moves.width, amplitude, curvature],
+        return GPUInstance(position: k.pos, size: [length * 0.62, length * 0.6], rotation: k.heading + moves.turn,
+                           kind: ShapeKind.fish.rawValue, seed: k.seed, phase: k.phase, color0: SIMD4(lit(look.base), 1),
+                           color1: SIMD4(lit(look.patch), moves.squash), color2: SIMD4(lit(look.accent), moves.jolt),
+                           params: [length, 0.135, amplitude, curvature],
                            params2: [look.patchThreshold, look.accentThreshold, look.special, k.depth])
     }
 
@@ -104,13 +104,12 @@ enum InstanceBuilder {
         let speed = simd_length(f.vel)
         let curvature = max(-0.3, min(0.3, f.length * f.turnRate / (2 * max(speed, 20))))
         let moves = dance(pond, seed: f.seed, strength: 0.7)
-        let length = f.length * moves.length
         let base: SIMD3<Float> = f.golden ? [0.98, 0.6, 0.22] : [0.74, 0.82, 0.88]
         let stripe: SIMD3<Float> = f.golden ? [0.12, 0.1, 0.1] : [0.22, 0.34, 0.5]
-        return GPUInstance(position: f.pos, size: [length * 0.62, length * 0.6 * moves.width], rotation: f.heading + moves.turn,
+        return GPUInstance(position: f.pos, size: [f.length * 0.62, f.length * 0.6], rotation: f.heading + moves.turn,
                            kind: ShapeKind.fish.rawValue, seed: f.seed, phase: f.phase,
-                           color0: SIMD4(base, 1), color1: SIMD4(base, 0), color2: SIMD4(stripe, 0),
-                           params: [length, 0.11 * moves.width, 0.08, curvature], params2: [2, 2, 4, 0.25])
+                           color0: SIMD4(base, 1), color1: SIMD4(base, moves.squash), color2: SIMD4(stripe, moves.jolt),
+                           params: [f.length, 0.11, 0.08, curvature], params2: [2, 2, 4, 0.25])
     }
 
     static func turtle(_ t: Turtle) -> GPUInstance {

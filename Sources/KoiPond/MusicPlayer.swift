@@ -6,7 +6,8 @@ import KoiPondRender
 
 /// Follows what Apple Music is playing. Song changes, play and pause arrive as Music's own broadcast,
 /// which needs no permission. The cover, the position in the song and the buttons use Apple Events,
-/// which macOS asks the user to allow once (Privacy & Security › Automation).
+/// which macOS asks the user to allow once (Privacy & Security › Automation). Those are all sent from a
+/// background queue (see `MusicEvents`), so a busy Music never holds up the pond or the buttons.
 final class MusicPlayer: ObservableObject {
     enum Access {
         case unknown, granted, denied
@@ -28,22 +29,8 @@ final class MusicPlayer: ObservableObject {
     /// Covers by song, including songs found to have none, so each is fetched once.
     private var covers: [String: CGImage?] = [:]
     private var lookups: Set<String> = []
-
-    private lazy var stateScript = NSAppleScript(source: """
-        tell application "Music"
-            set s to player state as text
-            if s is "stopped" then return {s}
-            set t to current track
-            return {s, name of t, artist of t, album of t, duration of t, player position}
-        end tell
-        """)
-    private lazy var coverScript = NSAppleScript(source: """
-        tell application "Music"
-            if (count of artworks of current track) is 0 then return ""
-            return raw data of artwork 1 of current track
-        end tell
-        """)
-    private var commandScripts: [NowPlayingButton: NSAppleScript] = [:]
+    /// Counts state requests, so an answer overtaken by a newer request is dropped.
+    private var syncs = 0
 
     var isMusicRunning: Bool {
         !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).isEmpty
@@ -93,22 +80,29 @@ final class MusicPlayer: ObservableObject {
             return
         }
         guard isMusicRunning else { return }
-        let command = switch button {
-        case .previous: "back track"
-        case .playPause: "playpause"
-        case .next: "next track"
-        }
-        let script = commandScripts[button] ?? NSAppleScript(source: "tell application \"Music\" to \(command)")
-        commandScripts[button] = script
-        guard run(script) != nil else { return }
         lastCommand = Date()
-        // Music's broadcast follows; meanwhile show the change straight away.
+        // Show the change straight away; Music's broadcast confirms it.
         if button == .playPause, var info {
             info.position = info.elapsed(at: Date())
             info.positionDate = Date()
             info.isPlaying.toggle()
             show(info)
         }
+        MusicEvents.queue.async { [weak self] in
+            do {
+                try MusicEvents.press(button)
+            } catch {
+                DispatchQueue.main.async { self?.failed(error) }
+            }
+        }
+    }
+
+    /// Brings Music to the front, opening its window.
+    static func openMusic() {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration)
     }
 
     static func openAutomationSettings() {
@@ -181,34 +175,35 @@ final class MusicPlayer: ObservableObject {
     }
 
     private func sync() {
-        guard isMusicRunning, let result = run(stateScript) else { return }
-        let state = result.atIndex(1)?.stringValue ?? "stopped"
-        guard state != "stopped", result.numberOfItems >= 6 else {
-            show(nil)
-            return
+        guard isMusicRunning else { return }
+        syncs += 1
+        let request = syncs
+        MusicEvents.queue.async { [weak self] in
+            let result = Result { try MusicEvents.state() }
+            DispatchQueue.main.async { self?.synced(result, request: request) }
         }
-        let title = result.atIndex(2)?.stringValue ?? ""
-        let artist = result.atIndex(3)?.stringValue ?? ""
-        let album = result.atIndex(4)?.stringValue ?? ""
-        let duration = result.atIndex(5)?.doubleValue ?? 0
-        let position = result.atIndex(6)?.doubleValue ?? 0
-        show(NowPlayingInfo(title: title, artist: artist, isPlaying: state == "playing",
-                            duration: duration > 0 ? duration : nil, position: position, positionDate: Date(),
-                            trackKey: Self.key(title, artist, album)))
     }
 
-    private func run(_ script: NSAppleScript?) -> NSAppleEventDescriptor? {
-        guard let script else { return nil }
-        var error: NSDictionary?
-        let result = script.executeAndReturnError(&error)
-        guard let error else { return result }
-        let number = error[NSAppleScript.errorNumber] as? Int
-        if number == errAEEventNotPermitted {
+    private func synced(_ result: Result<MusicEvents.State?, Error>, request: Int) {
+        guard request == syncs else { return }
+        switch result {
+        case .success(nil):
+            show(nil)
+        case .success(let state?):
+            show(NowPlayingInfo(title: state.title, artist: state.artist, isPlaying: state.playing,
+                                duration: state.duration > 0 ? state.duration : nil, position: state.position,
+                                positionDate: Date(), trackKey: Self.key(state.title, state.artist, state.album)))
+        case .failure(let error):
+            failed(error)
+        }
+    }
+
+    private func failed(_ error: Error) {
+        if case MusicEvents.Failure.notPermitted = error {
             access = .denied
             changed()
         }
-        Log.info("Music script failed (\(number ?? 0)): \(error[NSAppleScript.errorMessage] ?? "")")
-        return nil
+        Log.info("Music didn't answer: \(error)")
     }
 
     // MARK: Covers
@@ -228,12 +223,19 @@ final class MusicPlayer: ObservableObject {
             cover = cached
             return
         }
-        if access == .granted, let data = run(coverScript)?.data, let image = Self.decodeCover(data) {
-            remember(image, for: song.trackKey)
-            cover = image
+        guard access == .granted else {
+            lookUpOnline(song)
             return
         }
-        lookUpOnline(song)
+        // Covers can be large; fetch and shrink them off the main thread.
+        MusicEvents.queue.async { [weak self] in
+            let image = (try? MusicEvents.cover()).flatMap(Self.decodeCover)
+            DispatchQueue.main.async { self?.coverFetched(image, for: song) }
+        }
+    }
+
+    private func coverFetched(_ image: CGImage?, for song: NowPlayingInfo) {
+        if let image { coverFound(image, for: song.trackKey) } else { lookUpOnline(song) }
     }
 
     /// Music has no cover for songs streamed without being added to the library, so ask Apple's
@@ -319,5 +321,104 @@ final class MusicPlayer: ObservableObject {
         let playing = enabled && info?.isPlaying == true
         if isPlaying != playing { isPlaying = playing }
         onChange?()
+    }
+}
+
+/// The few Apple Events the player sends Music, built by hand: unlike NSAppleScript, which may only be
+/// used on the main thread, these can be sent from `queue`, one at a time and in order, so a command is
+/// always followed by a state that includes it. Codes are Music's own (`sdef /System/Applications/Music.app`).
+enum MusicEvents {
+    static let queue = DispatchQueue(label: "com.koifishwallpaper.koipond.music", qos: .userInitiated)
+
+    struct State {
+        var playing: Bool
+        var title: String
+        var artist: String
+        var album: String
+        var duration: Double
+        var position: Double
+    }
+
+    enum Failure: Error {
+        case notPermitted
+        case failed(Int)
+    }
+
+    static func press(_ button: NowPlayingButton) throws {
+        let id = switch button {
+        case .previous: "Back"
+        case .playPause: "PlPs"
+        case .next: "Next"
+        }
+        _ = try send(event("hook", id))
+    }
+
+    /// What's playing, or nil when Music is stopped.
+    static func state() throws -> State? {
+        let playerState = try get(property("pPlS")).enumCodeValue
+        guard playerState != code("kPSS") else { return nil }
+        let track = property("pTrk")
+        return State(playing: playerState == code("kPSP"),
+                     title: (try? get(property("pnam", of: track)).stringValue) ?? "",
+                     artist: (try? get(property("pArt", of: track)).stringValue) ?? "",
+                     album: (try? get(property("pAlb", of: track)).stringValue) ?? "",
+                     duration: (try? get(property("pDur", of: track)).doubleValue) ?? 0,
+                     position: (try? get(property("pPos")).doubleValue) ?? 0)
+    }
+
+    /// The current track's first artwork as image data, if it has one.
+    static func cover() throws -> Data? {
+        let artwork = element("cArt", index: 1, of: property("pTrk"))
+        let data = try get(property("pRaw", of: artwork)).data
+        return data.isEmpty ? nil : data
+    }
+
+    // MARK: Building and sending
+
+    private static func code(_ text: String) -> FourCharCode {
+        text.utf8.reduce(0) { $0 << 8 | FourCharCode($1) }
+    }
+
+    private static func event(_ eventClass: String, _ id: String) -> NSAppleEventDescriptor {
+        NSAppleEventDescriptor(eventClass: code(eventClass), eventID: code(id),
+                               targetDescriptor: NSAppleEventDescriptor(bundleIdentifier: MusicPlayer.bundleID),
+                               returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+    }
+
+    private static func specifier(want: String, of container: NSAppleEventDescriptor, form: String,
+                                  key: NSAppleEventDescriptor) -> NSAppleEventDescriptor {
+        let record = NSAppleEventDescriptor.record()
+        record.setDescriptor(NSAppleEventDescriptor(typeCode: code(want)), forKeyword: code("want"))
+        record.setDescriptor(container, forKeyword: code("from"))
+        record.setDescriptor(NSAppleEventDescriptor(enumCode: code(form)), forKeyword: code("form"))
+        record.setDescriptor(key, forKeyword: code("seld"))
+        return record.coerce(toDescriptorType: code("obj ")) ?? record
+    }
+
+    private static func property(_ name: String, of container: NSAppleEventDescriptor = .null()) -> NSAppleEventDescriptor {
+        specifier(want: "prop", of: container, form: "prop", key: NSAppleEventDescriptor(typeCode: code(name)))
+    }
+
+    private static func element(_ kind: String, index: Int32, of container: NSAppleEventDescriptor) -> NSAppleEventDescriptor {
+        specifier(want: kind, of: container, form: "indx", key: NSAppleEventDescriptor(int32: index))
+    }
+
+    private static func get(_ specifier: NSAppleEventDescriptor) throws -> NSAppleEventDescriptor {
+        let get = event("core", "getd")
+        get.setParam(specifier, forKeyword: keyDirectObject)
+        return try send(get)
+    }
+
+    private static func send(_ event: NSAppleEventDescriptor) throws -> NSAppleEventDescriptor {
+        let reply: NSAppleEventDescriptor
+        do {
+            reply = try event.sendEvent(options: [.waitForReply, .neverInteract], timeout: 4)
+        } catch let error as NSError {
+            throw error.code == errAEEventNotPermitted ? Failure.notPermitted : Failure.failed(error.code)
+        }
+        if let number = reply.paramDescriptor(forKeyword: keyErrorNumber)?.int32Value, number != 0 {
+            throw Int(number) == errAEEventNotPermitted ? Failure.notPermitted : Failure.failed(Int(number))
+        }
+        return reply.paramDescriptor(forKeyword: keyDirectObject) ?? .null()
     }
 }

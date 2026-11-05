@@ -3,11 +3,15 @@ import KoiPondRender
 import CoreVideo
 import KoiPondCore
 import Metal
+import VideoToolbox
 
 /// Records the pond into an HEVC movie shaped like Apple's aerials: video only, no audio,
-/// with the movie header at the front. Frames are drawn straight into the encoder's
-/// IOSurface-backed buffers, so nothing is copied back from the GPU.
+/// with the movie header at the front, and frames split into temporal layers. Frames are drawn
+/// straight into the encoder's IOSurface-backed buffers, so nothing is copied back from the GPU.
 enum PondVideoWriter {
+    /// Changes whenever the movie's encoding changes, so installed recordings are redone.
+    static let formatVersion = 2
+
     enum WriteError: LocalizedError {
         case setup(String)
 
@@ -36,6 +40,10 @@ enum PondVideoWriter {
                 AVVideoAverageBitRateKey: Int(Double(width * height * fps) * 0.05),
                 AVVideoExpectedSourceFrameRateKey: fps,
                 AVVideoMaxKeyFrameIntervalKey: fps * 2,
+                // Every other frame in a base layer, tagged with its temporal level the way Apple's aerials
+                // are. macOS slows the lock screen movie to a stop on unlock by picking frames by level; with
+                // no levels it fails ("noTemporalInfo") and that player never plays again until it restarts.
+                kVTCompressionPropertyKey_BaseLayerFrameRate as String: Double(fps) / 2,
             ],
         ])
         input.expectsMediaDataInRealTime = false

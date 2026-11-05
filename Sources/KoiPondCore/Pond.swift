@@ -74,6 +74,10 @@ public final class Pond {
     public private(set) var spinAge: Float?
     private var sinceSpin: Float = 0
     public static let spinLength: Float = 0.7
+    /// Scales the headbang: 0.5 gentle, 1 normal, 1.7 wild.
+    public var danceStrength: Float = 1
+    /// Whether the pond does its disco spins.
+    public var discoSpins = true
     /// Flips every beat, so the head jolts one way and then the other.
     public private(set) var beatSide: Float = 1
     /// The koi held by the cursor, where the cursor is, and how fast the koi is being moved.
@@ -357,7 +361,7 @@ public final class Pond {
             sinceBeat = 0
             // Now and then the whole pond spins: on average once every 30 seconds of dancing, never two
             // within 12 seconds of each other.
-            if spinAge == nil, groove > 0.25, sinceSpin > 12, rng.float(in: 0...1) < min(gap, 2) / 30 {
+            if discoSpins, spinAge == nil, groove > 0.25, sinceSpin > 12, rng.float(in: 0...1) < min(gap, 2) / 30 {
                 spinAge = 0
                 sinceSpin = 0
             }
@@ -366,7 +370,7 @@ public final class Pond {
         // Headbang: the squash eases in over 80 ms (so nothing jumps, even on slow songs), springs back
         // into a stretch and settles within half a second.
         let attack = min(sinceBeat / 0.08, 1)
-        bang = groove * attack * attack * (3 - 2 * attack) * exp(-sinceBeat / 0.25) * cos(2 * .pi * 1.5 * sinceBeat)
+        bang = danceStrength * groove * attack * attack * (3 - 2 * attack) * exp(-sinceBeat / 0.25) * cos(2 * .pi * 1.5 * sinceBeat)
     }
 
     /// How far round a fish is in the current disco spin, in radians; each starts a little after the
@@ -461,9 +465,8 @@ public final class Pond {
                 if d < minD && d > 0.01 { desired += away / d * (minD - d) / minD * 2.5 }
             }
 
-            // With the music, a little more pace, more on each squash; the speed eases towards it, so the
-            // koi surges rather than jumps. The headbang itself is drawn, not swum.
-            if groove > 0 { cruise *= 1 + groove * 0.15 + 0.25 * max(bang, 0) }
+            // How strongly this koi dances right now. The headbang is drawn on the body, not swum, so the
+            // swimming (and with it the tail's beat) goes on undisturbed by the music.
             k.dance += (groove - k.dance) * min(1, dt * 6)
             k.lift = max(0, k.lift - dt * 2)
 
@@ -478,7 +481,7 @@ public final class Pond {
             k.speed += (cruise - k.speed) * min(1, dt * 1.4)
             k.pos += SIMD2(cos(k.heading), sin(k.heading)) * k.speed * dt + drift(at: k.pos) * 10 * dt
             k.pos = clampToPond(k.pos, slack: k.length * 0.25)
-            k.phase += dt * 2 * .pi * (0.5 + k.speed / (34 * scale)) * (1 + k.dance * 0.8)
+            k.phase += dt * 2 * .pi * (0.5 + k.speed / (34 * scale))
 
             k.depthTimer -= dt
             if k.depthTimer <= 0 {
@@ -528,7 +531,6 @@ public final class Pond {
     }
 
     private func updateSmallFish(_ dt: Float) {
-        let groove = self.groove
         for s in schoolTargets.indices {
             schoolTimers[s] -= dt
             if schoolTimers[s] <= 0 {
@@ -584,7 +586,7 @@ public final class Pond {
             let rate = wrapAngle(heading - f.heading) / max(dt, 0.0001)
             f.turnRate += (rate - f.turnRate) * min(1, dt * 6)
             f.heading = heading
-            f.phase += dt * 2 * .pi * (1.5 + simd_length(f.vel) / 18) * (1 + groove * 0.6)
+            f.phase += dt * 2 * .pi * (1.5 + simd_length(f.vel) / 18)
             smallFish[i] = f
         }
     }

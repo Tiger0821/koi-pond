@@ -1,11 +1,12 @@
 import AppKit
 
-private final class ClosureMenuItem: NSMenuItem {
+final class ClosureMenuItem: NSMenuItem {
     private let handler: () -> Void
 
-    init(_ title: String, key: String = "", handler: @escaping () -> Void) {
+    init(_ title: String, key: String = "", modifiers: NSEvent.ModifierFlags = .command, handler: @escaping () -> Void) {
         self.handler = handler
         super.init(title: title, action: #selector(fire), keyEquivalent: key)
+        keyEquivalentModifierMask = modifiers
         target = self
     }
 
@@ -19,11 +20,17 @@ private final class ClosureMenuItem: NSMenuItem {
     }
 }
 
-/// The menu bar fish: About, Settings and Quit. Every pond setting lives in the Settings window.
+/// The menu bar fish: About, the Home window, Settings and Quit. Every pond setting lives in the Settings window.
 final class StatusMenuController {
     private let statusItem: NSStatusItem
 
-    init(openSettings: @escaping () -> Void) {
+    /// Hidden when the user keeps Koi Pond in the Dock only.
+    var isVisible: Bool {
+        get { statusItem.isVisible }
+        set { statusItem.isVisible = newValue }
+    }
+
+    init(openHome: @escaping () -> Void, openSettings: @escaping () -> Void) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let image = NSImage(systemSymbolName: "fish.fill", accessibilityDescription: "Koi Pond")
         image?.isTemplate = true
@@ -31,17 +38,20 @@ final class StatusMenuController {
 
         let menu = NSMenu()
         menu.autoenablesItems = false
-        menu.addItem(ClosureMenuItem("About Koi Pond") {
-            NSApp.activate()
-            NSApp.orderFrontStandardAboutPanel(options: [
-                .applicationName: "Koi Pond",
-                .credits: NSAttributedString(string: "A living koi pond for your desktop, lock screen and screen saver."),
-            ])
-        })
+        menu.addItem(ClosureMenuItem("About Koi Pond", handler: Self.showAbout))
         menu.addItem(.separator())
-        menu.addItem(ClosureMenuItem("Open Settings…", key: ",", handler: openSettings))
+        menu.addItem(ClosureMenuItem("Open Koi Pond", handler: openHome))
+        menu.addItem(ClosureMenuItem("Settings…", key: ",", handler: openSettings))
         menu.addItem(.separator())
         menu.addItem(ClosureMenuItem("Quit Koi Pond", key: "q") { NSApp.terminate(nil) })
         statusItem.menu = menu
+    }
+
+    static func showAbout() {
+        NSApp.activate()
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "Koi Pond",
+            .credits: NSAttributedString(string: "A living koi pond for your desktop, lock screen and screen saver."),
+        ])
     }
 }

@@ -244,12 +244,21 @@ enum ShaderSource {
     }
 
     // Top-down koi with +x as the head; the spine bends with the swim wave and the turn.
-    FishShape fishShape(float2 p, float L, float W, float amp, float curv, float phase) {
+    // Dancing moves the body only, from the head back to the tail's root: `squash` above 0 shortens and
+    // fattens it (below 0 stretches it), and `jolt` swings the head about that root. The tail fin and its
+    // swimming beat are left as they are.
+    FishShape fishShape(float2 p, float L, float W, float amp, float curv, float phase, float squash, float jolt) {
         FishShape f;
-        float s = (0.5 * L - p.x) / L;
+        const float root = 0.72;
+        float xRoot = (0.5 - root) * L;
+        float k = 1.0 - 0.2 * squash;
+        float x = p.x > xRoot ? xRoot + (p.x - xRoot) / k : p.x;
+        float s = (0.5 * L - x) / L;
         float sc = clamp(s, 0.0, 1.0);
-        float y = p.y - fishBend(sc, L, amp, curv, phase);
-        float hw = fishHalfWidth(sc, W);
+        float swing = jolt * max(0.0, p.x - xRoot);
+        float y = p.y - fishBend(sc, L, amp, curv, phase) - swing;
+        float fat = mix(1.0 + 0.24 * squash, 1.0, smoothstep(root - 0.15, root, sc));
+        float hw = fishHalfWidth(sc, W) * fat;
         f.body = max(abs(y) - hw, max(-s, s - 0.82) * L);
 
         float tu = (s - 0.7) / 0.3;
@@ -258,11 +267,12 @@ enum ShaderSource {
         float tailEnd = 0.74 + 0.26 * yr;   // forked tip
         f.tail = max(abs(y) - spread, max(-tu, tu - tailEnd) * L * 0.3);
 
-        // Pectoral fins sweep back and out, paddling slowly.
+        // Pectoral fins sweep back and out, paddling slowly, carried along with the dancing body.
         float s3 = 0.3;
-        float off3 = fishBend(s3, L, amp, curv, phase);
+        float fx = xRoot + ((0.5 - s3) * L - xRoot) * k;
+        float off3 = fishBend(s3, L, amp, curv, phase) + jolt * max(0.0, fx - xRoot);
         float side = (p.y - off3) >= 0.0 ? 1.0 : -1.0;
-        float2 q = float2(p.x - (0.5 - s3) * L, abs(p.y - off3) - fishHalfWidth(s3, W) * 0.75);
+        float2 q = float2(p.x - fx, abs(p.y - off3) - fishHalfWidth(s3, W) * (1.0 + 0.24 * squash) * 0.75);
         float ang = 0.55 + 0.3 * sin(phase * 0.5 + side * 0.8);
         float2 dir = float2(-cos(ang), sin(ang));
         float along = dot(q, dir);
@@ -280,7 +290,7 @@ enum ShaderSource {
     float4 shadeFish(Instance I, float2 p, constant Uniforms& u, bool pixel, float aa) {
         float L = I.params.x;
         float W = L * I.params.y;
-        FishShape f = fishShape(p, L, W, I.params.z, I.params.w, I.phase);
+        FishShape f = fishShape(p, L, W, I.params.z, I.params.w, I.phase, I.color1.w, I.color2.w);
         float mBody = edgeMask(f.body, aa, pixel);
         float mTail = edgeMask(f.tail, aa, pixel);
         float mFin = edgeMask(f.fin, aa, pixel);
@@ -329,7 +339,7 @@ enum ShaderSource {
 
     float4 shadeFishShadow(Instance I, float2 p, bool pixel, float aa) {
         float L = I.params.x;
-        FishShape f = fishShape(p, L, L * I.params.y, I.params.z, I.params.w, I.phase);
+        FishShape f = fishShape(p, L, L * I.params.y, I.params.z, I.params.w, I.phase, I.color1.w, I.color2.w);
         float d = min(f.body, min(f.tail, f.fin));
         float blur = aa + 2.0 + L * 0.03;
         float m = pixel ? step(d, 0.0) : 1.0 - smoothstep(-blur, blur, d);

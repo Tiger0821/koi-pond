@@ -18,7 +18,11 @@ private final class PlayerView: NSView {
     var onClick: ((NowPlayingButton) -> Void)?
     var onDragBegan: (() -> Void)?
     var onDragMoved: (() -> Void)?
-    var onDragEnded: (() -> Void)?
+    /// Says whether the player actually moved; if not, the press was a click.
+    var onDragEnded: ((Bool) -> Void)?
+    var onCoverClick: (() -> Void)?
+    /// Where a press off the buttons began, on screen; it only becomes a drag once it moves a few points.
+    private var downAt: NSPoint?
     private var dragging = false
 
     override init(frame: NSRect) {
@@ -45,15 +49,19 @@ private final class PlayerView: NSView {
                                        owner: self))
     }
 
-    private func button(for event: NSEvent, slack: CGFloat = 0) -> NowPlayingButton? {
+    private func artPoint(_ event: NSEvent) -> CGPoint {
         let point = convert(event.locationInWindow, from: nil)
-        return NowPlayingArt.button(at: CGPoint(x: point.x / pointsPerPixel, y: (bounds.height - point.y) / pointsPerPixel),
-                                    slack: slack)
+        return CGPoint(x: point.x / pointsPerPixel, y: (bounds.height - point.y) / pointsPerPixel)
+    }
+
+    private func button(for event: NSEvent, slack: CGFloat = 0) -> NowPlayingButton? {
+        NowPlayingArt.button(at: artPoint(event), slack: slack)
     }
 
     override func mouseMoved(with event: NSEvent) {
         hovered = button(for: event)
-        (hovered == nil ? NSCursor.openHand : NSCursor.pointingHand).set()
+        let pointing = hovered != nil || NowPlayingArt.isCover(at: artPoint(event))
+        (pointing ? NSCursor.pointingHand : NSCursor.openHand).set()
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -61,25 +69,31 @@ private final class PlayerView: NSView {
         NSCursor.arrow.set()
     }
 
-    /// A press on a button presses it; anywhere else picks the player up to move it.
+    /// A press on a button presses it. Anywhere else picks the player up to move it once the mouse moves;
+    /// let go without moving on the cover, and it opens Music.
     override func mouseDown(with event: NSEvent) {
         pressed = button(for: event)
         if pressed == nil {
-            dragging = true
-            NSCursor.closedHand.set()
+            downAt = NSEvent.mouseLocation
             onDragBegan?()
         }
     }
 
     override func mouseDragged(with event: NSEvent) {
-        if dragging { onDragMoved?() } else { hovered = button(for: event) }
+        if let downAt, !dragging, hypot(NSEvent.mouseLocation.x - downAt.x, NSEvent.mouseLocation.y - downAt.y) > 3 {
+            dragging = true
+            NSCursor.closedHand.set()
+        }
+        if dragging { onDragMoved?() } else if downAt == nil { hovered = button(for: event) }
     }
 
     override func mouseUp(with event: NSEvent) {
-        if dragging {
+        if downAt != nil {
+            onDragEnded?(dragging)
+            if !dragging, NowPlayingArt.isCover(at: artPoint(event)) { onCoverClick?() }
             dragging = false
+            downAt = nil
             NSCursor.openHand.set()
-            onDragEnded?()
         } else if let pressed, button(for: event, slack: 3) == pressed {
             onClick?(pressed)
         }
@@ -125,6 +139,8 @@ final class NowPlayingWidget {
         panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
         panel.isExcludedFromWindowsMenu = true
+        // Hide Koi Pond (Command-H) hides its windows, not what lives on the desktop.
+        panel.canHide = false
         view = PlayerView(frame: .zero)
         panel.contentView = view
     }
@@ -137,7 +153,8 @@ final class NowPlayingWidget {
             dragStart = (NSEvent.mouseLocation, panel.frame.origin)
         }
         view.onDragMoved = { [weak self] in self?.dragMoved() }
-        view.onDragEnded = { [weak self] in self?.dragEnded() }
+        view.onDragEnded = { [weak self] moved in self?.dragEnded(moved: moved) }
+        view.onCoverClick = { MusicPlayer.openMusic() }
         player.onChange = { [weak self] in self?.update() }
         store.$settings.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
             self?.update()
@@ -195,9 +212,9 @@ final class NowPlayingWidget {
         panel.setFrameOrigin(Snapping.snap(proposed, size: panel.frame.size, area: Self.area(of: screen)))
     }
 
-    private func dragEnded() {
+    private func dragEnded(moved: Bool) {
         dragStart = nil
-        guard let screen = NSScreen.screens.first else { return }
+        guard moved, let screen = NSScreen.screens.first else { return }
         let area = Self.area(of: screen), frame = panel.frame
         let x = area.width > frame.width ? (frame.minX - area.minX) / (area.width - frame.width) : 0
         let y = area.height > frame.height ? (frame.minY - area.minY) / (area.height - frame.height) : 0

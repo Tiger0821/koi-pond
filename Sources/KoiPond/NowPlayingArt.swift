@@ -95,6 +95,10 @@ enum NowPlayingArt {
     private static let bar = CGRect(x: 85, y: 37, width: 54, height: 2)
     private static let timeRight: CGFloat = 159
 
+    static func isCover(at point: CGPoint) -> Bool {
+        ArtLayout.player.cover.contains(point)
+    }
+
     /// The button at `point`; `slack` widens each one, for a press that drifts a little before release.
     static func button(at point: CGPoint, slack: CGFloat = 0) -> NowPlayingButton? {
         buttons.first { $0.1.insetBy(dx: -slack, dy: -slack).contains(point) }?.0
@@ -383,9 +387,18 @@ private struct Face {
 }
 
 /// Text as the pixels the system font lights at this size with antialiasing off, so effects can work
-/// on it pixel by pixel. Points are relative to the pen's start on the baseline.
+/// on it pixel by pixel. Points are relative to the pen's start on the baseline, in `fine` steps per art pixel.
+///
+/// Latin, Greek and Cyrillic stay chunky, one art pixel per pixel of an 11-pixel font, each pixel on or off.
+/// Chinese, Japanese, Korean and other scripts whose characters need more strokes than 11 pixels can hold
+/// are drawn on the bitmap's finer grid (`NowPlayingArt.detail` steps per art pixel), the one covers use, with
+/// edge pixels lit in quarter steps: on or off alone, a 22-pixel 麗 or 輸 still melts into a blob.
 private struct PixelText {
-    let points: [(x: Int, y: Int)]
+    /// `a` is how much of the pixel is lit, in quarters (4 is fully).
+    let points: [(x: Int, y: Int, a: Int)]
+    /// Steps per art pixel the points are in.
+    let fine: Int
+    /// In art pixels.
     let width: Int
 
     private static var cache: [String: PixelText] = [:]
@@ -394,6 +407,21 @@ private struct PixelText {
     static func width(_ string: String, font: CTFont) -> CGFloat {
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: string, attributes: [.font: font]))
         return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+    }
+
+    /// Whether `string` has characters too intricate for the chunky 11-pixel grid: anything from Hebrew on
+    /// (Arabic, Indic scripts, Thai, kana, hangul, Chinese characters, emoji), except punctuation and symbols.
+    static func needsDetail(_ string: String) -> Bool {
+        string.unicodeScalars.contains { $0.value >= 0x0590 && !(0x2000...0x2BFF).contains($0.value) }
+    }
+
+    /// The font at `scale` times its size and a step lighter: at 22 pixels, bold strokes of dense
+    /// characters such as 麗 or 間 still run together, so semibold becomes regular and bold becomes medium.
+    private static func lighter(_ font: CTFont, scale: Int) -> CTFont {
+        let traits = CTFontCopyTraits(font) as NSDictionary
+        let weight = (traits[kCTFontWeightTrait] as? CGFloat) ?? 0
+        let lighter: NSFont.Weight = weight >= NSFont.Weight.bold.rawValue - 0.01 ? .medium : .regular
+        return NSFont.systemFont(ofSize: CTFontGetSize(font) * CGFloat(scale), weight: lighter) as CTFont
     }
 
     /// `string`, cut short with an ellipsis if it's wider than `width`.
@@ -414,31 +442,36 @@ private struct PixelText {
     static func make(_ string: String, font: CTFont) -> PixelText {
         let key = "\(CTFontGetSize(font))|\(CTFontCopyPostScriptName(font))|\(string)"
         if let known = cache[key] { return known }
-        let width = Int(Self.width(string, font: font).rounded(.up)) + 2
-        let height = 20, baseline = 5
-        var points: [(x: Int, y: Int)] = []
+        let fine = needsDetail(string) ? NowPlayingArt.detail : 1
+        let drawn = fine == 1 ? font : Self.lighter(font, scale: fine)
+        let width = Int(Self.width(string, font: drawn).rounded(.up)) + 2 * fine
+        let height = 20 * fine, baseline = 5 * fine
+        var points: [(x: Int, y: Int, a: Int)] = []
         if let ctx = CGContext(data: nil, width: max(width, 1), height: height, bitsPerComponent: 8, bytesPerRow: max(width, 1),
                                space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) {
-            ctx.setShouldAntialias(false)
+            ctx.setShouldAntialias(fine > 1)
             ctx.setAllowsFontSmoothing(false)
             ctx.setShouldSubpixelPositionFonts(false)
             ctx.setFillColor(gray: 0, alpha: 1)
             ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: font, NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 1, alpha: 1),
+                .font: drawn, NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 1, alpha: 1),
             ]
             ctx.textPosition = CGPoint(x: 0, y: baseline)
             CTLineDraw(CTLineCreateWithAttributedString(NSAttributedString(string: string, attributes: attributes)), ctx)
             if let data = ctx.data?.assumingMemoryBound(to: UInt8.self) {
                 // Memory rows run top down; row r sits (height - 1 - r - baseline) pixels above the baseline.
                 for row in 0..<height {
-                    for column in 0..<width where data[row * width + column] > 100 {
-                        points.append((column, row - (height - baseline)))
+                    for column in 0..<width {
+                        let value = Int(data[row * width + column])
+                        let quarters = fine == 1 ? (value > 100 ? 4 : 0) : (value * 4 + 160) / 255
+                        if quarters > 0 { points.append((column, row - (height - baseline), min(quarters, 4))) }
                     }
                 }
             }
         }
-        let text = PixelText(points: points, width: points.map(\.x).max().map { $0 + 1 } ?? 0)
+        let right = points.map(\.x).max().map { $0 + 1 } ?? 0
+        let text = PixelText(points: points, fine: fine, width: (right + fine - 1) / fine)
         if cache.count > 600 { cache.removeAll() }
         cache[key] = text
         return text
@@ -639,15 +672,23 @@ private struct Canvas {
         }
     }
 
-    /// Text pixels from the pen at `x` on `baseline`; `keep` decides each pixel, given its place in the text.
+    /// Text pixels from the pen at `x` on `baseline`; `keep` decides each pixel, given its place in the text in
+    /// art pixels (so effects line up the same on fine text).
     func text(_ text: PixelText, x: CGFloat, baseline: CGFloat, color: CGColor, keep: ((Int, Int) -> Bool)? = nil) {
-        ctx.setFillColor(color)
-        var rects: [CGRect] = []
-        rects.reserveCapacity(text.points.count)
-        for p in text.points where keep?(p.x, p.y + 20) ?? true {
-            rects.append(flipped(CGRect(x: x + CGFloat(p.x), y: baseline + CGFloat(p.y), width: 1, height: 1)))
+        let unit = 1 / CGFloat(text.fine)
+        var rects: [[CGRect]] = Array(repeating: [], count: 5)
+        for p in text.points {
+            if let keep {
+                let ax = p.x >= 0 ? p.x / text.fine : (p.x - text.fine + 1) / text.fine
+                let ay = p.y >= 0 ? p.y / text.fine : (p.y - text.fine + 1) / text.fine
+                guard keep(ax, ay + 20) else { continue }
+            }
+            rects[p.a].append(flipped(CGRect(x: x + CGFloat(p.x) * unit, y: baseline + CGFloat(p.y) * unit, width: unit, height: unit)))
         }
-        ctx.fill(rects)
+        for quarters in 1...4 where !rects[quarters].isEmpty {
+            ctx.setFillColor(quarters == 4 ? color : color.copy(alpha: color.alpha * CGFloat(quarters) / 4) ?? color)
+            ctx.fill(rects[quarters])
+        }
     }
 
     /// A cover in its slot, optionally moved, as mosaic blocks, waved row by row, tinted towards the water,

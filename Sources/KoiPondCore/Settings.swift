@@ -56,6 +56,66 @@ public enum WeatherPreset: String, Codable, CaseIterable, Sendable {
     }
 }
 
+extension WeatherPreset {
+    /// An SF Symbol for the weather.
+    public var symbol: String {
+        switch self {
+        case .followDeviceTime: "clock"
+        case .sunny: "sun.max.fill"
+        case .crystal: "sparkles"
+        case .dawn: "sunrise.fill"
+        case .sunset: "sunset.fill"
+        case .twilight: "moon.haze.fill"
+        case .moonlight: "moon.stars.fill"
+        case .rain: "cloud.rain.fill"
+        case .storm: "cloud.bolt.rain.fill"
+        }
+    }
+}
+
+/// Where Koi Pond shows itself: its icon in the Dock, the fish in the menu bar, or both.
+public enum AppPresence: String, Codable, CaseIterable, Sendable {
+    case dockAndMenuBar, dock, menuBar
+
+    public var title: String {
+        switch self {
+        case .dockAndMenuBar: "Dock and menu bar"
+        case .dock: "Dock only"
+        case .menuBar: "Menu bar only"
+        }
+    }
+
+    public var inDock: Bool { self != .menuBar }
+    public var inMenuBar: Bool { self != .dock }
+}
+
+/// How hard the fish bounce to the beat.
+public enum DanceBounce: String, Codable, CaseIterable, Sendable {
+    case gentle, normal, wild
+
+    public var title: String {
+        switch self {
+        case .gentle: "Gentle"
+        case .normal: "Normal"
+        case .wild: "Wild"
+        }
+    }
+
+    /// Scales the squash, the stretch and the jolt of the head on each beat.
+    public var strength: Float {
+        switch self {
+        case .gentle: 0.5
+        case .normal: 1
+        case .wild: 1.7
+        }
+    }
+}
+
+/// The settings that share a Restore Defaults button.
+public enum SettingsGroup: Sendable {
+    case pond, fish, plants, performance
+}
+
 public enum RenderQuality: String, Codable, CaseIterable, Sendable {
     case pixel, balanced, smooth
 
@@ -205,10 +265,50 @@ public struct PondSettings: Codable, Equatable, Sendable {
     public var nowPlayingSize: NowPlayingSize = .small
     /// The fish rock to the beat of whatever Music is playing.
     public var danceToMusic = true
+    public var danceBounce: DanceBounce = .normal
+    /// About once every 30 seconds of dancing, the whole pond spins.
+    public var discoSpins = true
     /// When the song changes, a koi charges up out of the pond and smacks a big card of it onto the glass.
     public var songCard = true
+    /// When the app is opened, ten koi charge the screen together and smack into the glass.
+    public var launchCharge = true
+    public var presence: AppPresence = .dockAndMenuBar
 
     public init() {}
+
+    /// Puts one group of settings back to how they come, leaving the rest alone.
+    public mutating func restoreDefaults(_ group: SettingsGroup) {
+        let d = PondSettings()
+        switch group {
+        case .pond:
+            weather = d.weather
+            waterColor = d.waterColor
+            clarity = d.clarity
+            touchRipples = d.touchRipples
+            feedTheFish = d.feedTheFish
+            currentsEnabled = d.currentsEnabled
+            currentStrength = d.currentStrength
+            currentSpeed = d.currentSpeed
+            coreGlow = d.coreGlow
+        case .fish:
+            koiCount = d.koiCount
+            smallFishCount = d.smallFishCount
+            turtleCount = d.turtleCount
+            behavior = d.behavior
+            motionSpeed = d.motionSpeed
+        case .plants:
+            lilyPadCount = d.lilyPadCount
+            flowerStyle = d.flowerStyle
+            flowerCount = d.flowerCount
+            plantCount = d.plantCount
+        case .performance:
+            quality = d.quality
+            frameRate = d.frameRate
+            onBattery = d.onBattery
+            pauseInLowPower = d.pauseInLowPower
+            pauseWhenCovered = d.pauseWhenCovered
+        }
+    }
 
     /// Decodes stored settings on top of the defaults, so keys added in later versions keep their default.
     public static func load(from data: Data?) -> PondSettings {

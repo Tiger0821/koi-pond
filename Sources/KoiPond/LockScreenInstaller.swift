@@ -60,11 +60,16 @@ final class LockScreenInstaller: ObservableObject {
                                             queue: .main) { [weak self] _ in self?.isLocked = true })
         observers.append(center.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil,
                                             queue: .main) { [weak self] _ in self?.unlocked() })
+        // The screen saver's idle mode also plays the movie and slows it to a stop when it ends, with or without a lock.
+        observers.append(center.addObserver(forName: Notification.Name("com.apple.screensaver.didstop"), object: nil,
+                                            queue: .main) { [weak self] _ in self?.checkRendererSoon() })
         // Follow Device Time changes the light through the day; re-record when the phase moves on.
         phaseTimer = Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { [weak self] _ in
             guard let self else { return }
             settingsChanged(store.settings)
+            healRenderer()
         }
+        healRenderer()
     }
 
     /// Re-reads whether the user has picked our aerial in System Settings.
@@ -258,12 +263,57 @@ final class LockScreenInstaller: ObservableObject {
         }
     }
 
-    /// The aerial renderer can wedge into a black lock screen after the first lock; restarting just
-    /// the renderer on unlock keeps the next lock animated.
     private func unlocked() {
         isLocked = false
-        guard installedSlotID != nil else { return }
-        killProcess("WallpaperAerialsExtension")
+        checkRendererSoon()
+    }
+
+    /// After the movie has played on the lock screen or as the screen saver, give the wallpaper system a moment
+    /// to settle, then check on the renderer and its player.
+    private func checkRendererSoon() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in self?.healRenderer(checkingPlayer: true) }
+    }
+
+    /// The aerial renderer (WallpaperAerialsExtension) plays the pond on the lock screen, and runs the whole
+    /// time the aerial is the wallpaper. On macOS 27, if it stops on its own the wallpaper agent never starts
+    /// it again: it logs error 4099 for every change and the next lock has nothing playing. So it is never
+    /// stopped alone; when it's found missing, restarting the agent brings it back. Its movie player can also
+    /// get stuck while it keeps running: then it empties its layers and ignores every later lock until
+    /// restarted, which also leaves every Space's wallpaper (and so its Mission Control thumbnail) black. So
+    /// after the movie has played, the system log is checked for that and the renderer restarted with its agent.
+    private func healRenderer(checkingPlayer: Bool = false) {
+        guard installedSlotID != nil, !isLocked else { return }
+        refreshSelection()
+        guard isSelected else { return }
+        guard Self.isRunning(executable: "WallpaperAerialsExtension") else {
+            Log.info("the aerial renderer had stopped; restarting the wallpaper agent")
+            killProcess("WallpaperAgent")
+            return
+        }
+        guard checkingPlayer else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let problem = Self.rendererPlayerProblem() else { return }
+            DispatchQueue.main.async {
+                guard let self, !self.isLocked else { return }
+                Log.info("the aerial renderer's player got stuck (\(problem)); restarting it")
+                self.reloadWallpaper()
+            }
+        }
+    }
+
+    /// The last half minute of the aerial renderer's log, covering this unlock (or screen saver) and what led to it: a movie
+    /// read error, or a play request it ignored, means its player is stuck. Nil if neither (or the log can't be read).
+    private static func rendererPlayerProblem() -> String? {
+        let output = run("/usr/bin/log", [
+            "show", "--style", "compact", "--last", "30s", "--predicate",
+            #"process == "WallpaperAerialsExtension" AND (eventMessage CONTAINS "VideoSampleReadingErrors" OR (eventMessage CONTAINS "Play" AND eventMessage CONTAINS "Action: Nothing"))"#,
+        ])
+        // Entries name the process with its pid ("WallpaperAerialsExtension[123:…]"); the header quoting the
+        // predicate doesn't.
+        guard let entry = output.split(separator: "\n").first(where: { $0.contains("WallpaperAerialsExtension[") }) else {
+            return nil
+        }
+        return entry.contains("VideoSampleReadingErrors") ? "movie read error" : "ignored a play request"
     }
 
     // MARK: Slot selection
@@ -323,8 +373,8 @@ final class LockScreenInstaller: ObservableObject {
               // Sorted keys: the encoders' default key order changes from launch to launch.
               let look = try? JSONSerialization.data(withJSONObject: all.filter { Self.lookSettings.contains($0.key) },
                                                      options: .sortedKeys)
-        else { return "\(phase)|" }
-        return "\(phase)|\(String(decoding: look, as: UTF8.self))"
+        else { return "v\(PondVideoWriter.formatVersion)|\(phase)|" }
+        return "v\(PondVideoWriter.formatVersion)|\(phase)|\(String(decoding: look, as: UTF8.self))"
     }
 
     // MARK: System hooks
@@ -354,10 +404,23 @@ final class LockScreenInstaller: ObservableObject {
         return output.split(separator: " ").last.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 
-    /// Restarting both agents makes the lock screen, desktop and Settings thumbnail pick up the new movie.
+    /// Restarting both makes the lock screen, desktop and Settings thumbnail pick up the new movie. The agent
+    /// goes last, so the renderer it starts afresh is connected to it.
     private func reloadWallpaper() {
         killProcess("WallpaperAerialsExtension")
         killProcess("WallpaperAgent")
+    }
+
+    /// Whether any process runs a program file called `name`, judged by its path rather than its arguments,
+    /// so a command that merely mentions the name doesn't count.
+    private static func isRunning(executable name: String) -> Bool {
+        var pids = [pid_t](repeating: 0, count: Int(proc_listallpids(nil, 0)) + 64)
+        let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        for pid in pids.prefix(max(count, 0)) where pid > 0 {
+            if proc_pidpath(pid, &path, UInt32(path.count)) > 0, String(cString: path).hasSuffix("/\(name)") { return true }
+        }
+        return false
     }
 
     private func killProcess(_ name: String) {

@@ -403,3 +403,62 @@ final class DanceMovesTests: XCTestCase {
         }
     }
 }
+
+final class SettingsGroupTests: XCTestCase {
+    func testRestoreDefaultsTouchesOnlyItsGroup() {
+        var s = PondSettings()
+        s.koiCount = 33
+        s.behavior = .shy
+        s.weather = .storm
+        s.quality = .smooth
+        s.presence = .menuBar
+        s.restoreDefaults(.fish)
+        XCTAssertEqual(s.koiCount, PondSettings().koiCount)
+        XCTAssertEqual(s.behavior, PondSettings().behavior)
+        XCTAssertEqual(s.weather, .storm)
+        XCTAssertEqual(s.quality, .smooth)
+        XCTAssertEqual(s.presence, .menuBar)
+    }
+
+    func testOlderSettingsGetTheDockByDefault() {
+        let stored = try! JSONSerialization.data(withJSONObject: ["koiCount": 7])
+        let s = PondSettings.load(from: stored)
+        XCTAssertEqual(s.koiCount, 7)
+        XCTAssertEqual(s.presence, .dockAndMenuBar)
+    }
+}
+
+final class BounceSettingTests: XCTestCase {
+    /// The deepest squash of one beat's headbang at `strength`.
+    private func peak(strength: Float) -> Float {
+        let pond = Pond(size: SIMD2(800, 600), seed: 3)
+        pond.configure(PondConfig(koiCount: 2))
+        pond.danceStrength = strength
+        pond.music = PondMusic(level: 1, beats: 1)
+        var peak: Float = 0
+        for _ in 0..<60 {
+            pond.step(dt: 1 / 60)
+            peak = max(peak, pond.bang)
+        }
+        return peak
+    }
+
+    func testBounceScalesTheHeadbang() {
+        let normal = peak(strength: DanceBounce.normal.strength)
+        XCTAssertEqual(peak(strength: DanceBounce.gentle.strength), normal * 0.5, accuracy: 0.001)
+        XCTAssertEqual(peak(strength: DanceBounce.wild.strength), normal * 1.7, accuracy: 0.001)
+    }
+
+    func testDiscoSpinsCanBeTurnedOff() {
+        let pond = Pond(size: SIMD2(800, 600), seed: 8)
+        pond.configure(PondConfig(koiCount: 2))
+        pond.discoSpins = false
+        var clock: Float = 0, beats = 0
+        while clock < 300 {
+            if clock >= Float(beats) * 0.5 { beats += 1; pond.music = PondMusic(level: 1, beats: beats) }
+            pond.step(dt: 1 / 30)
+            clock += 1 / 30
+            XCTAssertNil(pond.spinAge)
+        }
+    }
+}

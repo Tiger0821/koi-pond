@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-APP = ROOT / "build/KoiPond.app"
+APP = Path("/Applications/Koi Pond.app")  # where scripts/build-app.sh installs it
 EXE = APP / "Contents/MacOS/KoiPond"
 LOG = Path.home() / "Library/Logs/KoiPond.log"
 DOMAIN = "com.koifishwallpaper.koipond"
