@@ -31,11 +31,13 @@ open "/Applications/Koi Pond.app"
 ```
 
 The script builds **Koi Pond.app** and installs it in `/Applications`, quitting and reopening a copy that's
-running; `--no-install` leaves it in `.build/app` instead. `./scripts/make-dmg.sh` packs it into
-`build/KoiPond.dmg` for a release: the app beside a shortcut to Applications, a note on opening it the first
-time, and the koi as the disk's icon. It puts the app together under `.build`, which iCloud
-Drive doesn't sync and Spotlight doesn't index, so a project on an iCloud-synced Desktop doesn't collect
-"KoiPond 2.app" conflict copies and Spotlight lists only the installed app. Its icon is the charging pixel koi,
+running; `--no-install` leaves it in `$TMPDIR/koipond-build` instead. `./scripts/make-dmg.sh` packs it into
+`build/KoiPond.dmg` for a release: a window with Koi Pond on the left, the Applications shortcut on the right
+and a big pixel arrow between them under "Drag Koi Pond onto Applications", on a pond background the app draws
+itself (`--dmg-background`), with the first-open tip underneath and the koi as the disk's icon. Finder lays
+the window out, so the first run asks once to let Terminal control Finder. It puts the app together in the temporary folder, outside
+the project: on an iCloud-synced Desktop, iCloud Drive touches new bundles (leaving "KoiPond 2.app" conflict
+copies and Finder data that breaks code signing), and Spotlight would list a second copy. Its icon is the charging pixel koi,
 drawn by the app itself (`.build/release/KoiPond --app-icon out.png [--style charge|splash|splat|night|lily]`)
 and turned into `AppIcon.icns` for the app and its screen saver.
 

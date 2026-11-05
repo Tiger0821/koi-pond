@@ -65,8 +65,8 @@ enum AppIcon {
         }
     }
 
-    private static let streak = SIMD3<Float>(0.78, 0.96, 0.92)
-    private static let foam = SIMD3<Float>(0.93, 0.99, 0.98)
+    static let streak = SIMD3<Float>(0.78, 0.96, 0.92)
+    static let foam = SIMD3<Float>(0.93, 0.99, 0.98)
     private static let pond: [SIMD3<Float>] = [[0.38, 0.72, 0.65], [0.25, 0.56, 0.53], [0.16, 0.42, 0.42], [0.1, 0.3, 0.32], [0.07, 0.21, 0.25]]
 
     private static func charge() -> CGImage? {
@@ -183,16 +183,16 @@ enum AppIcon {
     // MARK: Helpers
 
     /// A 4 × 4 ordered dither between the palette's colors, for smooth pixel-art gradients.
-    private static let bayer: [Double] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map { ($0 + 0.5) / 16 }
+    static let bayer: [Double] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map { ($0 + 0.5) / 16 }
 
-    private static func banded(_ t: Double, _ palette: [SIMD3<Float>], _ x: Int, _ y: Int) -> SIMD3<Float> {
+    static func banded(_ t: Double, _ palette: [SIMD3<Float>], _ x: Int, _ y: Int) -> SIMD3<Float> {
         let scaled = min(max(t, 0), 1) * Double(palette.count - 1)
         let index = Int(scaled)
         let step = scaled - Double(index) > bayer[(y % 4) * 4 + x % 4] ? 1 : 0
         return palette[min(index + step, palette.count - 1)]
     }
 
-    private struct Random {
+    struct Random {
         var state: UInt64
         init(seed: UInt64) { state = seed &* 0x9E37_79B9_7F4A_7C15 }
         mutating func next(_ low: Double, _ high: Double) -> Double {
@@ -202,7 +202,7 @@ enum AppIcon {
     }
 
     /// A square of art pixels with top-left coordinates and no antialiasing.
-    private final class Canvas {
+    final class Canvas {
         let ctx: CGContext
         let side: Int
 

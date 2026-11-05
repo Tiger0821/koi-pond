@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds "Koi Pond.app" (with the KoiPond.saver screen saver inside it), signs both ad hoc and installs the app
-# in /Applications, quitting and reopening a running copy. `--no-install` stops after building.
+# in /Applications, quitting and reopening a running copy. `--no-install` stops after building, leaving it in
+# $TMPDIR/koipond-build.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -9,9 +10,11 @@ INSTALL=1
 
 swift build -c release
 BIN_DIR="$(swift build -c release --show-bin-path)"
-# Put together under .build: iCloud Drive doesn't sync it (so a Desktop kept in iCloud gets no "KoiPond 2.app"
-# conflict copies) and Spotlight skips hidden folders (so it lists only the installed app).
-STAGE=".build/app"
+# Put together in the temporary folder, outside the project: on a Desktop kept in iCloud, iCloud Drive tags
+# and touches new bundles (leaving "KoiPond 2.app" conflict copies, and Finder data that breaks code signing),
+# and Spotlight would list a second copy of the app.
+STAGE="${TMPDIR:-/tmp}"
+STAGE="${STAGE%/}/koipond-build"
 APP="$STAGE/Koi Pond.app"
 SAVER="$STAGE/KoiPond.saver"
 
