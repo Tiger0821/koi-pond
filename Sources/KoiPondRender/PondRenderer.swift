@@ -9,11 +9,17 @@ public final class PondRenderer {
     let ctx: MetalContext
     public let pond: Pond
     public private(set) var settings: PondSettings
-    public var backingScale: Float
+    /// Every scene is pixel art: half a texel per point, drawn up with hard edges.
+    static let texelsPerPoint: Float = 0.5
     /// False while paused: frames still draw (for a still wallpaper) but time stands still.
     public var advancing = true
     /// Where the music comes from, read once a frame; nil keeps the pond silent.
     public var music: (() -> PondMusic)?
+    /// Hand-placed koi drawn instead of the pond's animals (for sample pictures); nil draws the pond.
+    public var lineup: [LineupKoi]?
+    /// 0…1: how much of their own colour the fish keep under the moonlight and dusk tints, which grey and tint
+    /// the rest of the pond. At 0 gold and lemon koi turn khaki at night.
+    static let koiColourKept: Float = 0.8
 
     private var look: WeatherLook
     private var lookTarget: WeatherLook
@@ -23,11 +29,10 @@ public final class PondRenderer {
     private var pendingFlashes: [Float] = []
     private var scene: MTLTexture?
 
-    public init(ctx: MetalContext, size: SIMD2<Float>, backingScale: Float, settings: PondSettings, seed: UInt64) {
+    public init(ctx: MetalContext, size: SIMD2<Float>, settings: PondSettings, seed: UInt64) {
         self.ctx = ctx
         pond = Pond(size: size, seed: seed)
         self.settings = settings
-        self.backingScale = backingScale
         look = settings.weather.look(at: Date())
         lookTarget = look
         apply(settings)
@@ -40,7 +45,6 @@ public final class PondRenderer {
         pond.currentsEnabled = s.currentsEnabled
         pond.currentSpeed = Float(s.currentSpeed)
         pond.danceStrength = s.danceBounce.strength
-        pond.discoSpins = s.discoSpins
         lookTarget = s.weather.look(at: Date())
     }
 
@@ -89,12 +93,12 @@ public final class PondRenderer {
     // MARK: Rendering
 
     func encode(_ commands: MTLCommandBuffer, finalPass: MTLRenderPassDescriptor) {
-        let texelsPerPoint = settings.quality.texelsPerPoint(backingScale: backingScale)
+        let texelsPerPoint = Self.texelsPerPoint
         let scene = sceneTexture(width: max(1, Int((pond.size.x * texelsPerPoint).rounded())),
                                  height: max(1, Int((pond.size.y * texelsPerPoint).rounded())))
         var uniforms = makeUniforms(pointsPerTexel: 1 / texelsPerPoint)
         let uniformLength = MemoryLayout<GPUUniforms>.stride
-        let instances = InstanceBuilder.build(pond: pond)
+        let instances = lineup.map(InstanceBuilder.lineup) ?? InstanceBuilder.build(pond: pond)
 
         let scenePass = MTLRenderPassDescriptor()
         scenePass.colorAttachments[0].texture = scene
@@ -121,7 +125,7 @@ public final class PondRenderer {
         if let encoder = commands.makeRenderCommandEncoder(descriptor: finalPass) {
             encoder.setRenderPipelineState(ctx.compositePipeline)
             encoder.setFragmentTexture(scene, index: 0)
-            encoder.setFragmentSamplerState(settings.quality == .pixel ? ctx.nearestSampler : ctx.linearSampler, index: 0)
+            encoder.setFragmentSamplerState(ctx.nearestSampler, index: 0)
             encoder.setFragmentBytes(&uniforms, length: uniformLength, index: 0)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
             encoder.endEncoding()
@@ -133,12 +137,12 @@ public final class PondRenderer {
         let clarity = max(0, min(1, Float(s.clarity) + look.clarityBoost))
         let currents = s.currentsEnabled ? Float(s.currentStrength) * (1 + look.storm * 0.8) : 0
         return GPUUniforms(
-            world: [pond.size.x, pond.size.y, pond.time, s.quality == .pixel ? 1 : 0],
+            world: [pond.size.x, pond.size.y, pond.time, 1],
             water: SIMD4(s.waterColor.simd, clarity),
             tint: SIMD4(look.tint, look.ambient),
             glow: SIMD4(look.glowColor, look.glow * Float(s.coreGlow) * 2),
             fx: [look.caustics, currents, pond.flowTime, look.rain],
-            fx2: [lightning, look.saturation, pointsPerTexel, 0])
+            fx2: [lightning, look.saturation, pointsPerTexel, Self.koiColourKept])
     }
 
     private func sceneTexture(width: Int, height: Int) -> MTLTexture {

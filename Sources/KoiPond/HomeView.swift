@@ -71,7 +71,7 @@ final class PondPreviewView: NSView {
         let size = (NSScreen.main ?? NSScreen.screens.first)?.frame.size ?? CGSize(width: 1512, height: 982)
         world = SIMD2(Float(size.width), Float(size.height))
         aspect = size.width / size.height
-        renderer = PondRenderer(ctx: ctx, size: world, backingScale: 1, settings: store.settings, seed: 0x686F_6D65)
+        renderer = PondRenderer(ctx: ctx, size: world, settings: store.settings, seed: 0x686F_6D65)
         renderer.music = music
         // Let the animals spread out before the first frame.
         for _ in 0..<90 { renderer.advance(dt: 1 / 30) }
@@ -115,8 +115,6 @@ final class PondPreviewView: NSView {
     override func layout() {
         super.layout()
         pond.frame = bounds
-        // Draw only as many pixels as the preview shows, whatever the quality setting.
-        renderer.backingScale = Float(bounds.width * (window?.backingScaleFactor ?? 2)) / world.x
         if pond.isPaused { pond.drawFrame() }
     }
 
@@ -306,7 +304,7 @@ struct HomeView: View {
     private var desktopCard: some View {
         FeatureCard(symbol: "menubar.dock.rectangle", tint: .teal, title: "Desktop",
                     status: store.settings.paused ? "Paused"
-                        : "\(store.settings.quality.title) quality · \(store.settings.frameRate == .max ? "up to 120 fps" : store.settings.frameRate.title)",
+                        : "Pixel art · \(store.settings.frameRate == .max ? "up to 120 fps" : store.settings.frameRate.title)",
                     isOn: Binding(get: { !store.settings.paused }, set: { on in store.update { $0.paused = !on } }),
                     options: { openSettings(.pond) })
     }

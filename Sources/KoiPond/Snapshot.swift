@@ -4,8 +4,9 @@ import ImageIO
 import KoiPondCore
 import UniformTypeIdentifiers
 
-/// `KoiPond --snapshot out.png [--weather sunset] [--quality pixel] [--behavior curious]
-///  [--size 1512x982] [--scale 2] [--seconds 8] [--feed 700,500] [--touch 700,500] [--touch-age 0.5] [--beat 120]`
+/// `KoiPond --snapshot out.png [--weather sunset] [--behavior curious]
+///  [--size 1512x982] [--scale 2] [--seconds 8] [--feed 700,500] [--touch 700,500] [--touch-age 0.5] [--beat 120]
+///  [--lineup "variety[:design]@x,y,heading,length[,depth,phase,seed];…"]`
 /// renders one frame offscreen without opening any windows.
 enum SnapshotCommand {
     static func runIfRequested() -> Bool {
@@ -22,7 +23,6 @@ enum SnapshotCommand {
 
         var settings = PondSettings()
         if let raw = value("--weather"), let weather = WeatherPreset(rawValue: raw) { settings.weather = weather }
-        if let raw = value("--quality"), let quality = RenderQuality(rawValue: raw) { settings.quality = quality }
         if let raw = value("--behavior"), let behavior = FishBehavior(rawValue: raw) { settings.behavior = behavior }
         let size = value("--size")?.split(separator: "x").compactMap { Float($0) } ?? []
         let worldSize = size.count == 2 ? SIMD2(size[0], size[1]) : SIMD2<Float>(1512, 982)
@@ -40,7 +40,9 @@ enum SnapshotCommand {
                                        seconds: Int(seconds))
             print("Wrote \(videoPath) in \(String(format: "%.1f", Date().timeIntervalSince(start))) s")
         }
-        let renderer = PondRenderer(ctx: ctx, size: worldSize, backingScale: scale, settings: settings, seed: 42)
+        // `--lineup "ogon@700,500,0.3,100;kigoi@…"` draws hand-placed koi on bare water instead of the pond's animals.
+        let renderer = PondRenderer(ctx: ctx, size: worldSize, settings: settings, seed: 42)
+        renderer.lineup = value("--lineup").map(LineupKoi.parse)
         if let feed = point("--feed") { renderer.pond.dropFood(at: feed, count: 10) }
         let bpm = value("--beat").flatMap(Float.init)
         for frame in 0..<Int(seconds * 60) {

@@ -38,7 +38,7 @@ enum SettingsPane: String, CaseIterable {
         case .pond: 668
         case .fish: 430
         case .plants: 440
-        case .music: 640
+        case .music: 860
         case .lockScreen: 452
         case .performance: 450
         }
@@ -56,17 +56,20 @@ final class SettingsWindowController {
     private let screenSaver: ScreenSaverInstaller
     private let music: MusicPlayer
     private let beat: MusicBeat
+    private let lyrics: PondLyrics
     private var window: NSWindow?
     private var tabs: SettingsTabs?
 
     var isVisible: Bool { window?.isVisible ?? false }
 
-    init(store: SettingsStore, lockScreen: LockScreenInstaller, screenSaver: ScreenSaverInstaller, music: MusicPlayer, beat: MusicBeat) {
+    init(store: SettingsStore, lockScreen: LockScreenInstaller, screenSaver: ScreenSaverInstaller, music: MusicPlayer, beat: MusicBeat,
+         lyrics: PondLyrics) {
         self.store = store
         self.lockScreen = lockScreen
         self.screenSaver = screenSaver
         self.music = music
         self.beat = beat
+        self.lyrics = lyrics
     }
 
     func show(pane: SettingsPane? = nil) {
@@ -110,7 +113,7 @@ final class SettingsWindowController {
         case .pond: AnyView(PondPane(store: store))
         case .fish: AnyView(FishPane(store: store))
         case .plants: AnyView(PlantsPane(store: store))
-        case .music: AnyView(MusicPane(store: store, music: music, beat: beat))
+        case .music: AnyView(MusicPane(store: store, music: music, beat: beat, lyrics: lyrics))
         case .lockScreen: AnyView(LockScreenPane(store: store, lockScreen: lockScreen, screenSaver: screenSaver))
         case .performance: AnyView(PerformancePane(store: store))
         }
@@ -296,7 +299,7 @@ private struct GeneralPane: View {
             Section {
                 Toggle("Listen to Music so the fish can dance", isOn: store.binding(\.danceToMusic))
                 DisclosureGroup("What Koi Pond can see and hear") {
-                    Text("While a song plays and this is on, Koi Pond hears Music's sound, and only Music's (never the microphone or other apps), to find the beat; each moment of sound is measured and thrown away, and nothing is recorded or saved. It doesn't use Screen Recording, Accessibility or Input Monitoring: it reads click positions and window frames only to tell desktop clicks apart. The one thing that leaves your Mac: when Music has no cover for a song, the Now Playing player asks Apple's iTunes Search for it by song and artist name.")
+                    Text("While a song plays and this is on, Koi Pond hears Music's sound, and only Music's (never the microphone or other apps), to find the beat; each moment of sound is measured and thrown away, and nothing is recorded or saved. It doesn't use Screen Recording, Accessibility or Input Monitoring: it reads click positions and window frames only to tell desktop clicks apart. What leaves your Mac: when Music has no cover for a song, the Now Playing player asks Apple's iTunes Search for it by song and artist name; and with Rock and Roll lyrics on, each new song's title, artist, album and length go to NetEase Cloud Music and LRCLIB to find its lyrics, which are then kept on your Mac.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             } header: {
@@ -444,6 +447,12 @@ private struct MusicPane: View {
     @ObservedObject var store: SettingsStore
     @ObservedObject var music: MusicPlayer
     @ObservedObject var beat: MusicBeat
+    @ObservedObject var lyrics: PondLyrics
+
+    /// The style picker: one style for everything, or nil to match the styles to each song.
+    private var style: Binding<RockStyle?> {
+        Binding(get: { store.settings.rockStyle }, set: { value in store.update { $0.rockStyle = value } })
+    }
 
     var body: some View {
         Form {
@@ -478,6 +487,25 @@ private struct MusicPane: View {
                 Note("A pixel-art Apple Music player above your desktop icons. Drag it to move it; click the cover to open Music.")
             }
             Section {
+                Toggle("Rock and Roll lyrics in the middle of the pond", isOn: store.binding(\.rockLyrics))
+                if store.settings.rockLyrics {
+                    Picker("Style", selection: style) {
+                        Text("Match the song").tag(RockStyle?.none)
+                        Section("Calm") {
+                            ForEach(RockStyle.styles(for: .standard), id: \.self) { Text($0.title).tag(Optional($0)) }
+                        }
+                        Section("Wild") {
+                            ForEach(RockStyle.styles(for: .exaggerated), id: \.self) { Text($0.title).tag(Optional($0)) }
+                        }
+                    }
+                    LabeledContent("Status", value: lyrics.status)
+                }
+            } header: {
+                Text("Lyrics")
+            } footer: {
+                Note("The line being sung plays big in the middle of the pond, and the pond dims a little behind it. Matched to the song, a ballad gets the calm styles (Poster Stomp, Rocking Boat) and a hard-hitting song the wild ones (Stage Dive, Mosh Pit), judged by how fast the words come and, while the fish dance, by the beat; the styles change at new parts of the song, wilder in its loud parts. Lyrics are looked up on NetEase Cloud Music and LRCLIB. With Reduce Motion on, they change colour but stay still.")
+            }
+            Section {
                 Toggle("A koi delivers each new song", isOn: store.binding(\.songCard))
             } header: {
                 Text("Song changes")
@@ -491,7 +519,6 @@ private struct MusicPane: View {
                         ForEach(DanceBounce.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    Toggle("Disco spins now and then", isOn: store.binding(\.discoSpins))
                     LabeledContent("Status", value: beat.status)
                 }
             } header: {
@@ -542,28 +569,16 @@ private struct LockScreenPane: View {
 private struct PerformancePane: View {
     @ObservedObject var store: SettingsStore
 
-    private var qualityNote: String {
-        switch store.settings.quality {
-        case .pixel: "Pixel: chunky pixel art, and the lightest on battery."
-        case .balanced: "Balanced: one pixel per point, smooth edges."
-        case .smooth: "Smooth: full Retina detail, and the most power."
-        }
-    }
-
     var body: some View {
         Form {
             Section {
-                Picker("Quality", selection: store.binding(\.quality)) {
-                    ForEach(RenderQuality.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
                 Picker("Frame rate", selection: store.binding(\.frameRate)) {
                     ForEach(FrameRate.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
             } header: {
                 Text("Drawing")
             } footer: {
-                Note(qualityNote)
+                Note("The pond is drawn as pixel art, which also keeps it light on battery.")
             }
             Section {
                 Picker("On battery", selection: store.binding(\.onBattery)) {

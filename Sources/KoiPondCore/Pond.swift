@@ -70,14 +70,8 @@ public final class Pond {
     /// The headbang on the beat: positive squashes the fish short and fat, negative stretches it as it
     /// springs back. Scaled by how loud the song is; 0 in silence.
     public private(set) var bang: Float = 0
-    /// Seconds into a disco spin, while one is running; about one every 30 seconds of dancing.
-    public private(set) var spinAge: Float?
-    private var sinceSpin: Float = 0
-    public static let spinLength: Float = 0.7
     /// Scales the headbang: 0.5 gentle, 1 normal, 1.7 wild.
     public var danceStrength: Float = 1
-    /// Whether the pond does its disco spins.
-    public var discoSpins = true
     /// Flips every beat, so the head jolts one way and then the other.
     public private(set) var beatSide: Float = 1
     /// The koi held by the cursor, where the cursor is, and how fast the koi is being moved.
@@ -133,11 +127,19 @@ public final class Pond {
 
     private func makeKoi() -> Koi {
         let length = rng.chance(0.2) ? rng.float(in: 100...124) : rng.float(in: 68...100)
-        return Koi(pos: randomPoint(margin: 80), heading: rng.float(in: -Float.pi...Float.pi), speed: 20,
-                   length: length, variety: KoiVariety.random(using: &rng), seed: rng.float(in: 0...100),
-                   phase: rng.float(in: 0...(2 * .pi)), depth: rng.float(in: 0.1...0.6),
-                   targetDepth: rng.float(in: 0.1...0.6), depthTimer: rng.float(in: 4...16),
-                   wanderTarget: randomPoint(margin: 90), wanderTimer: rng.float(in: 2...10))
+        var fish = Koi(pos: randomPoint(margin: 80), heading: rng.float(in: -Float.pi...Float.pi), speed: 20,
+                       length: length, variety: KoiVariety.random(using: &rng), seed: rng.float(in: 0...100),
+                       phase: rng.float(in: 0...(2 * .pi)), depth: rng.float(in: 0.1...0.6),
+                       targetDepth: rng.float(in: 0.1...0.6), depthTimer: rng.float(in: 4...16),
+                       wanderTarget: randomPoint(margin: 90), wanderTimer: rng.float(in: 2...10))
+        // Deal the variety's designs out in turn, from wherever its first fish happens to start, so koi of
+        // one variety look different from each other.
+        if let last = koi.last(where: { $0.variety == fish.variety }) {
+            fish.design = (last.design + 1) % fish.variety.designs.count
+        } else {
+            fish.design = Int(fish.seed) % fish.variety.designs.count
+        }
+        return fish
     }
 
     private func makeTurtle() -> Turtle {
@@ -288,15 +290,15 @@ public final class Pond {
     }
 
     /// Takes the koi nearest `point` out of the pond with a splash: it's off charging the viewer, drawn
-    /// elsewhere. Returns where it left the water and its variety, or nil when no koi is free.
-    public func borrowKoi(near point: SIMD2<Float>) -> (position: SIMD2<Float>, variety: KoiVariety)? {
+    /// elsewhere. Returns where it left the water, its variety and its look, or nil when no koi is free.
+    public func borrowKoi(near point: SIMD2<Float>) -> (position: SIMD2<Float>, variety: KoiVariety, look: KoiVariety.Look)? {
         let free = koi.indices.filter { held?.index != $0 }
         guard borrowed == nil, let i = free.min(by: { simd_distance(koi[$0].pos, point) < simd_distance(koi[$1].pos, point) })
         else { return nil }
         borrowed = i
         koi[i].away = true
         splash(at: koi[i].pos, strength: 1.4, drops: 5)
-        return (koi[i].pos, koi[i].variety)
+        return (koi[i].pos, koi[i].variety, koi[i].look)
     }
 
     /// The borrowed koi falls back into the pond at `point` with a big splash and dives, a little dazed.
@@ -353,42 +355,15 @@ public final class Pond {
 
     private func updateMusic(_ dt: Float) {
         sinceBeat += dt
-        sinceSpin += dt
         if music.beats != lastBeats {
-            let gap = sinceBeat
             lastBeats = music.beats
             beatSide = -beatSide
             sinceBeat = 0
-            // Now and then the whole pond spins: on average once every 30 seconds of dancing, never two
-            // within 12 seconds of each other.
-            if discoSpins, spinAge == nil, groove > 0.25, sinceSpin > 12, rng.float(in: 0...1) < min(gap, 2) / 30 {
-                spinAge = 0
-                sinceSpin = 0
-            }
         }
-        if let age = spinAge { spinAge = age + dt > Self.spinLength + 0.3 ? nil : age + dt }
         // Headbang: the squash eases in over 80 ms (so nothing jumps, even on slow songs), springs back
         // into a stretch and settles within half a second.
         let attack = min(sinceBeat / 0.08, 1)
         bang = danceStrength * groove * attack * attack * (3 - 2 * attack) * exp(-sinceBeat / 0.25) * cos(2 * .pi * 1.5 * sinceBeat)
-    }
-
-    /// How far round a fish is in the current disco spin, in radians; each starts a little after the
-    /// others, by its seed, so the pond turns in a ripple rather than in lockstep.
-    public func spinAngle(seed: Float) -> Float {
-        spinProgress(seed: seed) * 2 * .pi
-    }
-
-    /// 0…1 at the height of a fish's spin, for the flash on its scales.
-    public func spinFlash(seed: Float) -> Float {
-        sin(spinProgress(seed: seed) * .pi)
-    }
-
-    private func spinProgress(seed: Float) -> Float {
-        guard let spinAge else { return 0 }
-        let delay = (seed * 0.618).truncatingRemainder(dividingBy: 1) * 0.25
-        let p = min(max((spinAge - delay) / Self.spinLength, 0), 1)
-        return p * p * (3 - 2 * p)
     }
 
     /// How strongly the fish dance: not at all in silence, fully in the song's loud parts.

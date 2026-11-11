@@ -116,27 +116,6 @@ public enum SettingsGroup: Sendable {
     case pond, fish, plants, performance
 }
 
-public enum RenderQuality: String, Codable, CaseIterable, Sendable {
-    case pixel, balanced, smooth
-
-    public var title: String {
-        switch self {
-        case .pixel: "Pixel"
-        case .balanced: "Balanced"
-        case .smooth: "Smooth"
-        }
-    }
-
-    /// How many offscreen texels each screen point gets before upscaling.
-    public func texelsPerPoint(backingScale: Float) -> Float {
-        switch self {
-        case .pixel: 0.5
-        case .balanced: 1
-        case .smooth: max(backingScale, 1)
-        }
-    }
-}
-
 public enum FrameRate: Int, Codable, CaseIterable, Sendable {
     case fps15 = 15, fps24 = 24, fps30 = 30, fps60 = 60, max = 120
 
@@ -225,6 +204,49 @@ public enum NowPlayingSize: String, Codable, CaseIterable, Sendable {
     public var pointsPerPixel: Int { self == .small ? 2 : 3 }
 }
 
+/// The two kinds of Rock and Roll style: three calmer ones and three wild ones. Which a song gets is decided by
+/// the song (`SongIntensity`), not set.
+public enum RockMotion: String, Codable, CaseIterable, Sendable {
+    case standard, exaggerated
+
+    public var title: String {
+        switch self {
+        case .standard: "Standard"
+        case .exaggerated: "Exaggerated"
+        }
+    }
+}
+
+/// How Rock and Roll lyrics look and move.
+public enum RockStyle: String, Codable, CaseIterable, Sendable {
+    case headbang, rockingBoat, posterStomp, stageDive, glitch, moshPit
+
+    public var title: String {
+        switch self {
+        case .headbang: "Headbang"
+        case .rockingBoat: "Rocking Boat"
+        case .posterStomp: "Poster Stomp"
+        case .stageDive: "Stage Dive"
+        case .glitch: "CH4NGE Glitch"
+        case .moshPit: "Mosh Pit"
+        }
+    }
+
+    public var motion: RockMotion {
+        switch self {
+        case .headbang, .rockingBoat, .posterStomp: .standard
+        case .stageDive, .glitch, .moshPit: .exaggerated
+        }
+    }
+
+    public static func styles(for motion: RockMotion) -> [RockStyle] {
+        allCases.filter { $0.motion == motion }
+    }
+
+    /// Calm to wild, the order the mix reaches for as a song gets more intense.
+    public static let calmToWild: [RockStyle] = [.posterStomp, .rockingBoat, .headbang, .glitch, .stageDive, .moshPit]
+}
+
 public struct PondSettings: Codable, Equatable, Sendable {
     public var paused = false
     public var feedTheFish = true
@@ -248,7 +270,6 @@ public struct PondSettings: Codable, Equatable, Sendable {
     public var flowerCount = 5
     public var plantCount = 18
 
-    public var quality: RenderQuality = .pixel
     public var frameRate: FrameRate = .fps30
     public var onBattery: BatteryMode = .slowDown
     public var pauseInLowPower = false
@@ -266,12 +287,15 @@ public struct PondSettings: Codable, Equatable, Sendable {
     /// The fish rock to the beat of whatever Music is playing.
     public var danceToMusic = true
     public var danceBounce: DanceBounce = .normal
-    /// About once every 30 seconds of dancing, the whole pond spins.
-    public var discoSpins = true
     /// When the song changes, a koi charges up out of the pond and smacks a big card of it onto the glass.
     public var songCard = true
     /// When the app is opened, ten koi charge the screen together and smack into the glass.
     public var launchCharge = true
+    /// The song's synced lyrics play big in the middle of the pond, and the pond dims a little behind them.
+    public var rockLyrics = false
+    /// One style for every line, or nil to match the styles to each song: calmer for a ballad, wilder for a
+    /// hard-hitting song, mixed through it.
+    public var rockStyle: RockStyle?
     public var presence: AppPresence = .dockAndMenuBar
 
     public init() {}
@@ -302,7 +326,6 @@ public struct PondSettings: Codable, Equatable, Sendable {
             flowerCount = d.flowerCount
             plantCount = d.plantCount
         case .performance:
-            quality = d.quality
             frameRate = d.frameRate
             onBattery = d.onBattery
             pauseInLowPower = d.pauseInLowPower

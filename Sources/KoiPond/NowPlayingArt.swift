@@ -15,6 +15,7 @@ struct NowPlayingInfo: Equatable {
     var positionDate = Date()
     /// Names the song, for caching its cover.
     var trackKey: String
+    var album = ""
 
     func elapsed(at date: Date) -> Double? {
         guard let position else { return nil }

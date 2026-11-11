@@ -13,6 +13,10 @@ final class MusicBeat: ObservableObject {
 
     private let lock = NSLock()
     private var latest = PondMusic()
+    /// The beat as a steady grid on the host clock, at the moments the beats are heard. Guarded by `lock`.
+    private var tracker = BeatTracker()
+    /// How long Music's sound takes to come out of the speakers or headphones. Guarded by `lock`.
+    private var outputLatency: Double = 0
     /// Read by the render loop once a frame.
     var music: PondMusic {
         lock.lock()
@@ -26,6 +30,7 @@ final class MusicBeat: ObservableObject {
     private var procID: AudioDeviceIOProcID?
     /// Touched only on `queue` while listening.
     private var detector = BeatDetector(sampleRate: 48000)
+    private var sampleRate: Double = 48000
     private var heardSeconds: Float = 0
     private var heardSound = false
     private var silenceCheck: DispatchWorkItem?
@@ -62,11 +67,13 @@ final class MusicBeat: ObservableObject {
             let (tapUID, sampleRate) = try makeTap()
             try makeDevice(tapUID: tapUID)
             detector = BeatDetector(sampleRate: sampleRate)
+            self.sampleRate = Double(sampleRate)
+            measureLatency()
             heardSeconds = 0
             heardSound = false
             var proc: AudioDeviceIOProcID?
-            try check(AudioDeviceCreateIOProcIDWithBlock(&proc, deviceID, queue) { [weak self] _, input, _, _, _ in
-                self?.process(input)
+            try check(AudioDeviceCreateIOProcIDWithBlock(&proc, deviceID, queue) { [weak self] _, input, inputTime, _, _ in
+                self?.process(input, at: inputTime.pointee)
             }, "set up listening")
             procID = proc
             try check(AudioDeviceStart(deviceID, proc), "start listening")
@@ -97,7 +104,65 @@ final class MusicBeat: ObservableObject {
         tapID = AudioObjectID(kAudioObjectUnknown)
         lock.lock()
         latest = PondMusic()
+        tracker.reset()
         lock.unlock()
+    }
+
+    // MARK: The beat as a grid
+
+    /// The beat at `hostTime` (the `CACurrentMediaTime` clock), with beats at the moments they're heard;
+    /// nil while not listening or when there's no steady beat.
+    func beatGrid(at hostTime: CFTimeInterval) -> BeatGrid? {
+        lock.lock()
+        defer { lock.unlock() }
+        return tracker.grid(at: hostTime)
+    }
+
+    /// Forgets the tempo, for a new song.
+    func resetTempo() {
+        measureLatency()
+        lock.lock()
+        tracker.reset()
+        lock.unlock()
+    }
+
+    /// The output device's delay: its own latency, safety offset and buffer, and its stream's latency.
+    private func measureLatency() {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var device = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr
+        else { return }
+        func value<T>(_ selector: AudioObjectPropertySelector, of object: AudioObjectID, _ initial: T) -> T {
+            var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeOutput,
+                                                     mElement: kAudioObjectPropertyElementMain)
+            var result = initial
+            var size = UInt32(MemoryLayout<T>.size)
+            return AudioObjectGetPropertyData(object, &address, 0, nil, &size, &result) == noErr ? result : initial
+        }
+        let rate = value(kAudioDevicePropertyNominalSampleRate, of: device, Float64(0))
+        guard rate > 0 else { return }
+        var frames = [kAudioDevicePropertyLatency, kAudioDevicePropertySafetyOffset, kAudioDevicePropertyBufferFrameSize]
+            .reduce(UInt32(0)) { $0 + value($1, of: device, UInt32(0)) }
+        var streams = [AudioStreamID](repeating: 0, count: 8)
+        var streamsSize = UInt32(MemoryLayout<AudioStreamID>.size * streams.count)
+        var streamsAddress = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams, mScope: kAudioObjectPropertyScopeOutput,
+                                                        mElement: kAudioObjectPropertyElementMain)
+        if AudioObjectGetPropertyData(device, &streamsAddress, 0, nil, &streamsSize, &streams) == noErr, streamsSize > 0 {
+            frames += value(kAudioStreamPropertyLatency, of: streams[0], UInt32(0))
+        }
+        lock.lock()
+        outputLatency = Double(frames) / rate
+        lock.unlock()
+    }
+
+    /// Seconds from a host time on Music's sound to the moment it's heard.
+    var heardDelay: Double {
+        lock.lock()
+        defer { lock.unlock() }
+        return outputLatency
     }
 
     /// When access is refused, macOS hands the tap silence rather than an error.
@@ -162,25 +227,33 @@ final class MusicBeat: ObservableObject {
     }
 
     /// On the audio queue: folds every buffer into the detector, then publishes the result.
-    private func process(_ input: UnsafePointer<AudioBufferList>) {
+    private func process(_ input: UnsafePointer<AudioBufferList>, at time: AudioTimeStamp) {
         let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
         // Interleaved stereo arrives as one buffer; split channels as one buffer each, of which the first will do.
         guard let buffer = buffers.first, let data = buffer.mData else { return }
         let channels = max(Int(buffer.mNumberChannels), 1)
         let samples = data.assumingMemoryBound(to: Float.self)
         let frames = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size / channels
+        // When the buffer's first sample was played, on the CACurrentMediaTime clock.
+        let start = time.mFlags.contains(.hostTimeValid)
+            ? Double(AudioConvertHostTimeToNanos(time.mHostTime)) / 1_000_000_000 : CACurrentMediaTime()
         var loudest: Float = 0
+        var onsets: [Double] = []
         for frame in 0..<frames {
             var mono: Float = 0
             for channel in 0..<channels { mono += samples[frame * channels + channel] }
             mono /= Float(channels)
             loudest = max(loudest, abs(mono))
+            let before = detector.music.beats
             detector.add(mono)
+            // The detector counts a beat at the end of a ~23 ms block; the jump was in the block's middle.
+            if detector.music.beats != before { onsets.append(start + Double(frame) / sampleRate - 0.012) }
         }
         if loudest > 0 { heardSound = true }
         let music = detector.music
         lock.lock()
         latest = music
+        for onset in onsets { tracker.add(onset: onset + outputLatency) }
         lock.unlock()
     }
 

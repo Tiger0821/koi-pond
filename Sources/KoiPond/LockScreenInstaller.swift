@@ -363,8 +363,12 @@ final class LockScreenInstaller: ObservableObject {
     private static let lookSettings: Set<String> = [
         "weather", "waterColor", "clarity", "currentsEnabled", "currentStrength", "currentSpeed", "coreGlow",
         "koiCount", "smallFishCount", "turtleCount", "motionSpeed", "lilyPadCount", "flowerStyle", "flowerCount",
-        "plantCount", "quality",
+        "plantCount",
     ]
+
+    /// Goes up whenever the pond itself is drawn differently (new koi designs, night colours), so a recording
+    /// made by an older build is redone.
+    private static let drawingVersion = 2
 
     private func lookKey(_ s: PondSettings) -> String {
         let phase = s.weather == .followDeviceTime ? WeatherPreset.dayPhase(at: Date()) : -1
@@ -373,8 +377,8 @@ final class LockScreenInstaller: ObservableObject {
               // Sorted keys: the encoders' default key order changes from launch to launch.
               let look = try? JSONSerialization.data(withJSONObject: all.filter { Self.lookSettings.contains($0.key) },
                                                      options: .sortedKeys)
-        else { return "v\(PondVideoWriter.formatVersion)|\(phase)|" }
-        return "v\(PondVideoWriter.formatVersion)|\(phase)|\(String(decoding: look, as: UTF8.self))"
+        else { return "v\(PondVideoWriter.formatVersion).\(Self.drawingVersion)|\(phase)|" }
+        return "v\(PondVideoWriter.formatVersion).\(Self.drawingVersion)|\(phase)|\(String(decoding: look, as: UTF8.self))"
     }
 
     // MARK: System hooks

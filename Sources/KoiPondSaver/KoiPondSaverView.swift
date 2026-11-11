@@ -42,13 +42,11 @@ public final class KoiPondSaverView: ScreenSaverView {
         }
         var settings = PondSettings.load(from: Self.settingsData())
         settings.paused = false
-        if isPreview { settings.quality = .pixel }
         frameInterval = 1 / Double(isPreview ? 20 : min(settings.frameRate.rawValue, 60))
         animationTimeInterval = frameInterval
 
         let size = SIMD2(Float(max(frame.width, 64)), Float(max(frame.height, 64)))
-        let renderer = PondRenderer(ctx: ctx, size: size, backingScale: Float(NSScreen.main?.backingScaleFactor ?? 2),
-                                    settings: settings, seed: UInt64.random(in: 1...UInt64.max))
+        let renderer = PondRenderer(ctx: ctx, size: size, settings: settings, seed: UInt64.random(in: 1...UInt64.max))
         // Start with the animals already spread out rather than all appearing at once.
         for _ in 0..<60 { renderer.advance(dt: 1 / 30) }
         self.renderer = renderer
@@ -138,7 +136,6 @@ public final class KoiPondSaverView: ScreenSaverView {
         lastTick = now
 
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        renderer.backingScale = Float(scale)
         let width = Int(bounds.width * scale), height = Int(bounds.height * scale)
         guard let target = surface(width: width, height: height) else { return }
         renderer.render(into: target.texture)

@@ -74,6 +74,9 @@ final class SongCard {
         let slide: CGFloat
     }
 
+    /// From the koi's wind-up until the card has sunk back into the pond.
+    var isPresenting: Bool { show != nil }
+
     init(store: SettingsStore, player: MusicPlayer, wallpaper: WallpaperController) {
         self.store = store
         self.player = player
@@ -121,7 +124,7 @@ final class SongCard {
         if let pond = wallpaper.mainPond, pond.isRunning,
            let koi = pond.renderer.pond.borrowKoi(near: SIMD2(Float(impact.x), Float(impact.y))) {
             launch = CGPoint(x: CGFloat(koi.position.x), y: CGFloat(koi.position.y))
-            look = koi.variety.look
+            look = koi.look
         }
         let now = CACurrentMediaTime()
         show = Show(start: now, launch: launch, impact: impact, look: look, far: 0.6,

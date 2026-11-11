@@ -64,8 +64,7 @@ enum PondVideoWriter {
         guard let textureCache else { throw WriteError.setup("no texture cache") }
         let textureAttributes = [kCVMetalTextureUsage as String: MTLTextureUsage([.renderTarget, .shaderRead]).rawValue]
 
-        let renderer = PondRenderer(ctx: ctx, size: worldSize, backingScale: Float(width) / worldSize.x,
-                                    settings: settings, seed: 0x6C6F636B)
+        let renderer = PondRenderer(ctx: ctx, size: worldSize, settings: settings, seed: 0x6C6F636B)
         // Let the animals spread out before the first frame.
         for _ in 0..<90 { renderer.advance(dt: 1 / 30) }
 

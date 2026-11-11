@@ -167,8 +167,8 @@ final class NowPlayingWidget {
 
     private func update() {
         let s = store.settings
-        // The fish dancing and the song card need to know what plays, even with the player hidden.
-        player.setEnabled(s.nowPlaying || s.danceToMusic || s.songCard)
+        // The fish dancing, the song card and the lyrics need to know what plays, even with the player hidden.
+        player.setEnabled(s.nowPlaying || s.danceToMusic || s.songCard || s.rockLyrics)
         noticeSongChange()
         guard s.nowPlaying, let info = player.info, let screen = NSScreen.screens.first else {
             hide()

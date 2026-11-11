@@ -19,6 +19,8 @@ final class MusicPlayer: ObservableObject {
     private(set) var info: NowPlayingInfo?
     private(set) var cover: CGImage?
     var onChange: (() -> Void)?
+    /// Every change, for anything else following along (the player's own `onChange` belongs to the widget).
+    let changes = PassthroughSubject<Void, Never>()
 
     static let bundleID = "com.apple.Music"
     private var enabled = false
@@ -137,7 +139,7 @@ final class MusicPlayer: ObservableObject {
         let album = fields["Album"] as? String ?? ""
         let duration = (fields["Total Time"] as? NSNumber).map { $0.doubleValue / 1000 }
         show(NowPlayingInfo(title: title, artist: artist, isPlaying: state == "Playing",
-                            duration: duration, position: nil, trackKey: Self.key(title, artist, album)))
+                            duration: duration, position: nil, trackKey: Self.key(title, artist, album), album: album))
         // Permission may have been given in System Settings since it was refused.
         if access == .denied { checkAccess(ask: false) }
     }
@@ -179,12 +181,16 @@ final class MusicPlayer: ObservableObject {
         syncs += 1
         let request = syncs
         MusicEvents.queue.async { [weak self] in
+            let asked = Date()
             let result = Result { try MusicEvents.state() }
-            DispatchQueue.main.async { self?.synced(result, request: request) }
+            // Music read its position somewhere between the question and the answer; the middle is the best
+            // guess, rather than whenever the main thread gets to it.
+            let sampled = asked.addingTimeInterval(Date().timeIntervalSince(asked) / 2)
+            DispatchQueue.main.async { self?.synced(result, request: request, sampled: sampled) }
         }
     }
 
-    private func synced(_ result: Result<MusicEvents.State?, Error>, request: Int) {
+    private func synced(_ result: Result<MusicEvents.State?, Error>, request: Int, sampled: Date) {
         guard request == syncs else { return }
         switch result {
         case .success(nil):
@@ -192,7 +198,8 @@ final class MusicPlayer: ObservableObject {
         case .success(let state?):
             show(NowPlayingInfo(title: state.title, artist: state.artist, isPlaying: state.playing,
                                 duration: state.duration > 0 ? state.duration : nil, position: state.position,
-                                positionDate: Date(), trackKey: Self.key(state.title, state.artist, state.album)))
+                                positionDate: sampled, trackKey: Self.key(state.title, state.artist, state.album),
+                                album: state.album))
         case .failure(let error):
             failed(error)
         }
@@ -321,6 +328,7 @@ final class MusicPlayer: ObservableObject {
         let playing = enabled && info?.isPlaying == true
         if isPlaying != playing { isPlaying = playing }
         onChange?()
+        changes.send()
     }
 }
 

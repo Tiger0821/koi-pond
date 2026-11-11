@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let beat = MusicBeat()
     private var nowPlaying: NowPlayingWidget?
     private var songCard: SongCard?
+    private var lyrics: PondLyrics?
     private let launchCharge = LaunchCharge()
     private var statusMenu: StatusMenuController?
 
@@ -60,6 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let screenSaver = ScreenSaverInstaller(store: store)
         let nowPlaying = NowPlayingWidget(store: store, player: music)
         let songCard = SongCard(store: store, player: music, wallpaper: wallpaper)
+        // `--demo-lyrics [--demo-style stageDive]` plays made-up lyrics to a steady beat, without Music.
+        let lyrics = PondLyrics(store: store, player: music, beat: beat, wallpaper: wallpaper)
+        lyrics.holdWhile = { songCard.isPresenting }
         nowPlaying.onSongChange = { from, to, style in songCard.present(from: from, to: to, style: style) }
         // `--demo-song-card` plays the song-change show a few seconds after launch, without a real song change.
         if CommandLine.arguments.contains("--demo-song-card") {
@@ -70,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         let settingsWindow = SettingsWindowController(store: store, lockScreen: lockScreen, screenSaver: screenSaver,
-                                                      music: music, beat: beat)
+                                                      music: music, beat: beat, lyrics: lyrics)
         let homeWindow = HomeWindowController(ctx: ctx, store: store, lockScreen: lockScreen, screenSaver: screenSaver,
                                               music: music, beat: beat, openSettings: { pane in settingsWindow.show(pane: pane) })
         self.settingsWindow = settingsWindow
@@ -93,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         interaction.start()
         nowPlaying.start()
         beat.start(store: store, player: music)
+        lyrics.start()
         if trial == nil {
             lockScreen.start()
             screenSaver.start()
@@ -110,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.screenSaver = screenSaver
         self.nowPlaying = nowPlaying
         self.songCard = songCard
+        self.lyrics = lyrics
         Log.info("started\(trial == nil ? "" : " with trial settings"): screenRecordingGranted=\(CGPreflightScreenCaptureAccess()) windowsVisible=\(WindowList.snapshot().count)")
     }
 

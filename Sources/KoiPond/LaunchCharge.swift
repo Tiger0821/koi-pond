@@ -244,7 +244,7 @@ final class LaunchCharge {
             // Spread over the whole screen, with the biggest dead center and last.
             let spots: [(x: CGFloat, y: CGFloat)] = [(0.15, 0.74), (0.4, 0.8), (0.64, 0.76), (0.87, 0.7), (0.21, 0.47),
                                                      (0.79, 0.46), (0.13, 0.2), (0.4, 0.22), (0.69, 0.2), (0.5, 0.5)]
-            let looks = KoiVariety.allCases.shuffled(using: &random).map(\.look)
+            let looks = KoiVariety.allCases.shuffled(using: &random).map { $0.designs.randomElement(using: &random) ?? $0.look }
             let order = Array(0..<(spots.count - 1)).shuffled(using: &random)
             var fish: [Fish] = []
             for (i, spot) in spots.enumerated() {

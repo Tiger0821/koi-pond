@@ -5,7 +5,7 @@
 ## Download
 
 **[Download Koi Pond for Mac (KoiPond.dmg)](https://github.com/Tiger0821/koi-pond/releases/latest/download/KoiPond.dmg)**:
-version 1.0.1, about 2 MB, for macOS 14 or later on Apple silicon.
+version 1.0.2, about 2 MB, for macOS 14 or later on Apple silicon.
 
 1. Open `KoiPond.dmg` and drag **Koi Pond** onto **Applications**.
 2. Open Koi Pond from Applications. It isn't from the App Store, so the first time macOS may say it can't
@@ -15,8 +15,9 @@ version 1.0.1, about 2 MB, for macOS 14 or later on Apple silicon.
 
 Koi Pond may ask to control Music (for the Now Playing player) and to hear Music's sound (so the fish can
 dance to the beat). Both are optional: Settings › General › Privacy › "Listen to Music so the fish can dance"
-turns listening off, and then Koi Pond never hears any sound. Every version is on the
-[releases page](https://github.com/Tiger0821/koi-pond/releases).
+turns listening off, and then Koi Pond never hears any sound. Rock and Roll lyrics (off at first) look each
+new song's lyrics up online, sending its title, artist, album and length to NetEase Cloud Music and LRCLIB.
+Every version is on the [releases page](https://github.com/Tiger0821/koi-pond/releases).
 
 ## About
 
@@ -58,8 +59,12 @@ Run the tests with `swift test`. `defaults write com.koifishwallpaper.koipond De
 clicks, what blocked them, frames drawn and skipped, and any stall. To render a frame without opening any windows:
 
 ```bash
-.build/debug/KoiPond --snapshot pond.png --weather sunset --quality pixel
+.build/debug/KoiPond --snapshot pond.png --weather sunset
 ```
+
+Add `--lineup "ogon@760,520,0.1,110;kigoi:2@740,420,2.9,100"` (variety@x,y,heading,length, in points with y
+up) to draw just those koi on bare water, for looking at the fish up close. `:2` picks the variety's third
+design; without it you get the first.
 
 To measure CPU, memory, GPU and battery use with few and many animals (about 20 minutes, on battery,
 leaving the Mac alone), run `python3 -I scripts/measure-usage.py`. It uses `KoiPond --try-settings
@@ -67,8 +72,23 @@ file.json`, which runs the pond with those settings without saving them.
 
 ## What it does
 
-- **Living pond:** ten koi varieties, schools of small fish, turtles that surface and dive,
-  lily pads, lotus or water lily flowers, and underwater plants.
+- **Living pond:** ten koi varieties (Kohaku, Taisho Sanke, Showa, Tancho, a metallic gold Yamabuki Ogon
+  that shines and glints, Asagi with its net scales and red cheeks, a lemon Akame Kigoi with red eyes,
+  Chagoi, Shiro Utsuri and Benigoi), schools of small fish, turtles that surface and dive,
+  lily pads, lotus or water lily flowers, and underwater plants. The fish are lit from the upper left like
+  their shadows, with see-through fins, and their patterns follow show rules: a white nose, clean white
+  before the tail, no black on a Sanke's head, black fin roots on Showa and Utsuri, stripes in Sanke fins.
+- **Many designs per koi:** most varieties come in several designs, dealt out in turn so koi of one
+  variety look different from each other, and none is a single flat colour. At night and at dusk the fish
+  keep their own colours, only dimmer, while the water around them goes dark.
+  - Kohaku: classic plates, Inazuma (a lightning band), Sandan (three steps, with red lips), Kanoko
+    (dapples), Ai-goromo (indigo-edged scales), Goshiki (a blue-grey net) and Fukurin (a light rim on
+    every scale).
+  - Sanke: classic or Maruten (a round red crown). Showa: classic or with soft sumi-e ink edges.
+  - Ogon: Fukurin, Ki Matsuba (pine-cone scales), Kin Kikokuryu (ink clouds) or Hariwake (platinum and gold).
+  - Kigoi: a scale net, Gin-rin (sparkling scales), Ki Bekko (black spots) or Ki Utsuri (black and lemon).
+  - Chagoi: a scale net, Gin-rin, Ochiba Shigure (grey-blue with bronze leaves) or Doitsu (mirror scales).
+  - Benigoi: Aka Matsuba, Gin-rin or Beni Kumonryu (white, black and red swirls).
 - **Touch the water:** click bare desktop for ripples. With **Feed the Fish** on, a click drops
   food (at most one click every 0.05 s counts, so an auto clicker can't swamp the pond). Clicks on windows, widgets, the Dock or menus are
   ignored, and icons keep working because the pond never takes the click.
@@ -76,7 +96,9 @@ file.json`, which runs the pond with those settings without saving them.
   Storm (lightning), or Follow Device Time to drift from dawn to moonlight with the clock.
 - **Make it yours:** water color, clarity, ripples, currents (strength, speed, core glow), animal
   counts, koi behavior (Calm, Curious, Shy, Schooling), motion speed, blooms and plants.
-- **Quiet:** Pixel, Balanced and Smooth quality; 15–120 fps. It slows or pauses on battery and
+- **Rock and Roll lyrics:** the song's synced lyrics play big in the middle of the pond, slamming in word
+  by word to the beat, while the pond dims a little behind them (see below).
+- **Quiet:** always pixel art, which is light on battery; 15–120 fps. It slows or pauses on battery and
   in Low Power Mode, and rests while the Mac sleeps, the screen is locked, or windows cover a display.
 
 ## Lock screen
@@ -141,6 +163,104 @@ and sinks with a splash (Settings › Music › Song changes). Previews:
 `.build/release/KoiPond --koi-face out.png --pose splat --variety sanke`, and launching the app binary with
 `--demo-song-card` plays the whole show four seconds in.
 
+## Rock and Roll lyrics
+
+Turn on **Settings › Music › Lyrics › Rock and Roll lyrics in the middle of the pond** and the song's
+words play big across the middle of the main display as they're sung, one line at a time: only the line
+being sung shows. Each line comes in its style's way just before its first word, and leaves its style's way
+as the next one comes. The pond dims a little behind them (a soft dark layer, darker in a wide oval behind
+the words) and comes back during long instrumental breaks. When a koi delivers a new song's card, the
+lyrics wait off screen until the card has sunk, then the line being sung comes in. Six styles, calm to wild:
+
+| Kind | Style | What it does |
+|---|---|---|
+| Calm | Poster Stomp | Hollow letters fill in as they're sung; words held longer are set bigger and heavier; the line stomps on the beat |
+| Calm | Rocking Boat | The line rolls like a boat on the water, at the far end of its roll on each beat; letters roll in like wheels, and every other beat sends a ripple across the pond |
+| Calm | Headbang | Heavy condensed capitals; each word pops in with a koi-orange flash, and the line dips and tips on every beat |
+| Wild | CH4NGE Glitch | Shouty capitals mixed with a serif (Mincho for Chinese and Japanese), giant slams that snap back with the colours torn apart, a cyan tape under the sung word, sideways jolts on the beat |
+| Wild | Stage Dive | Letters drop from high up, stretched and smeared, squash flat with a hit-stop, bounce back past full height, kick up pixel dust and splash the pond |
+| Wild | Mosh Pit | A ransom-note jumble of faces and tilts in worn print, beat waves across the line, big pops with smears, shakes, a white impact frame as each line starts, splashes |
+
+**Matched to the song** (the default; Settings › Music › Lyrics › Style can also hold any one style): Koi Pond
+decides how wild to go from the song itself (`SongIntensity`), and mixes the styles near that through it
+(`RockMix`), so a ballad keeps to the calm ones and a hard-hitting song to the wild ones, and a song in
+between mixes both. How intense a song is starts from its lyrics, by how fast the words come (a ballad sings
+about 1 to 1.5 syllables a second, most songs 2 to 3, fast songs and rap 4 or more; one syllable per Chinese,
+Japanese or Korean character). While the fish dance, so Koi Pond hears Music, the beat joins in over the
+first 20 seconds: a strong, steady beat at a quick tempo makes a song wilder, and soft or loose drums calmer,
+which is what tells a slow-sung rock song from a ballad. Its loud and quiet parts then nudge the aim up and
+down, never so far that a ballad turns wild. Run on real lyrics, 月亮代表我的心, 甜蜜蜜 and 決定不想你 come out
+calm (Poster Stomp and Rocking Boat), 稻香 and *Lose Yourself* wild (Stage Dive, Mosh Pit, CH4NGE Glitch), and
+*Bad Habit* in between. The status line in Settings says how the current song was judged and which style is up.
+
+A new style only takes over as a line comes in, and only where the song turns a corner: after a pause in
+the singing of 2 seconds or more, where a repeated chorus begins, or every 4 lines at the most, and a style
+always gets at least 2 lines. It never picks the same style twice in a row. On a change the old line leaves
+in its style and the new one comes in with the next one's entrance: Headbang drops in from above, Rocking
+Boat drifts in rolling, Poster Stomp is stamped on, Stage Dive's slots rise and its letters fall in on their
+words, CH4NGE Glitch jumps in sideways in hard steps, and Mosh Pit's letters fly in from every direction.
+Each style is built on the same animation principles as the song card: anticipation before a hit, squash
+and stretch, hit-stop, smears, overshoot and a camera that reacts. With Reduce Motion on, nothing moves and
+nothing flashes; the type still changes colour as it's sung, and styles still change, by fading.
+
+The lyrics are pixel art like the player: drawn into a small bitmap (`RockLyricsArt`, two canvas pixels to an
+art pixel, about 4 points per art pixel on a 14-inch MacBook Pro) and scaled up with nearest-neighbour
+filtering, in a click-through window just above the pond (`PondLyrics`). Latin letters come from aliased
+fonts one art pixel per font pixel; Chinese, Japanese and Korean are drawn on the finer grid with edges in
+quarter steps, so dense characters stay readable.
+
+**Where the lyrics come from:** NetEase Cloud Music first, for its word-by-word timing (most Chinese songs
+and many others), lined up with LRCLIB's lyrics for the same release; then LRCLIB alone (its words are timed by
+their length); then NetEase's line timing. LRCLIB sets the clock because it keeps to the audio: listening to
+Music on this Mac (NotchLyrics' speech-recognition sync) found LRCLIB's lyrics within about 0.07 s of the
+singing, where NetEase's ran about 0.25 s early as a rule and up to 3 s off for some uploads. So when both
+have the song, NetEase's words are moved by the gap between the two (every line the same, when most lines
+agree to within half a second), or line by line onto LRCLIB's line starts when an upload drifts against the
+release, keeping the words' rhythm inside each line. When the lines don't match at all, it's another
+arrangement, and LRCLIB's lyrics for the release are used instead. LRCLIB's reference is its lyrics for the
+exact release (title, artist, album and length), or failing that its nearest match within a second.
+
+Fetched lyrics are checked before they're used:
+
+- **Believable timing:** lyrics whose lines go by faster than anyone sings (a quarter of them over 9 syllables
+  a second, one per Chinese, Japanese or Korean character; real songs run at 1 to 4, fast rap at about 7) are
+  skipped for the next match. Some uploads time a line by spreading its words evenly over a fraction of a
+  second, which made the words race ahead of the singing.
+- **The same recording:** matches must be within 3 seconds of the song's length (within 1 second when the
+  artist's name doesn't match, as with a localized name); the song's own album is preferred, since another
+  release can have a longer or shorter intro; and a title whose brackets mark another version (another
+  language, live, a cover, an instrumental, a remix, a 版) is skipped unless the song's own title says the same.
+- **The song under any name:** Music may name a Chinese song or singer in Traditional or Simplified, or in
+  English (Teresa Teng for 鄧麗君, Jay Chou for 周杰倫), where a source filed it another way. Titles and artists
+  are compared without regard to script, NetEase's aliases and translated names for songs and artists count
+  as matches, and LRCLIB is searched in both scripts. A song Music gives an English title (*The Moon
+  Represents My Heart*) is matched to the same artist's Chinese-titled song at the same length, to within a
+  second. Japanese lyrics are skipped for a song whose title, artist and album have no Japanese in them (愛人
+  is the name of both 鄧麗君's Chinese song and her Japanese one).
+- **Only the sung lines:** credit lines (作词 : …, Composer: …), and the song's name card at the start (the
+  title and artist run together, then 词 … and 曲 … with no colon) are dropped. When a translation shares a
+  timestamp with the line it translates, the line that's sung is kept.
+
+Simplified Chinese lyrics are shown in Traditional when the Mac's preferred languages put Traditional Chinese
+first. Answers, including "none" and how the lyrics were lined up, are cached in
+`~/Library/Caches/com.koifishwallpaper.koipond/Lyrics/` (a "none" is asked again after 30 minutes). NetEase
+is an unofficial API and may miss some songs. The parsing and lookup come from
+[NotchLyrics](https://github.com/Tiger0821/notch-lyrics).
+
+**Timing:** the position in the song is read from Music over Apple Events every few seconds, stamped at the
+middle of each request (when Music read it, rather than when the answer was handled), and eased, so a late
+answer never makes a word jump, while a seek jumps at once. The output device's delay (larger for AirPods
+and other Bluetooth headphones) is taken off, so the words land as you hear them. At each song change the
+log (`~/Library/Logs/KoiPond.log`) names the song and says what each source had for it (or why it was
+skipped), which lyrics were used and how they were lined up, and how closely the clock kept to Music. The beat comes
+from the same listening the fish dance to: each beat the detector hears is timestamped and turned into a
+steady grid (`BeatTracker`), so the motion can wind up just before a beat lands. With *Fish dance to the
+music* off, Koi Pond hears nothing, and the words still hit on their own timing without the beat.
+
+Launch the app binary with `--demo-lyrics` to play a made-up 24-second song (a quiet verse, a break, then
+a loud chorus) to a steady 150 BPM, without Music, going from calm styles to wild ones; add `--demo-style
+stageDive`, `glitch`, … to hold one.
+
 ## Opening
 
 Each time Koi Pond is opened (not when it starts at login), ten koi burst out of the pond together and
@@ -157,9 +277,8 @@ or play it with `--demo-launch` even when it's off.
 While Music plays, the koi and small fish headbang: on each beat their bodies (not their tails, which keep
 their own swimming beat) squash short and fat (easing in
 over 80 ms, so nothing jumps), spring back long and thin, and jolt their heads one way and then the other,
-swimming a little livelier in the loud parts. About once every 30 seconds of dancing the whole pond does a
-disco spin, each fish a beat-long turn with a flash on its scales. Settings › Music › Dance sets how hard they
-bounce (Gentle, Normal or Wild: half, full or 1.7 times the squash, stretch and jolt) and can turn the spins off. The
+swimming a little livelier in the loud parts. Settings › Music › Dance sets how hard they bounce (Gentle,
+Normal or Wild: half, full or 1.7 times the squash, stretch and jolt). The
 moves are drawn, never swum, so feeding, dragging and the song card are unaffected. Koi Pond hears only Music's audio, through a
 Core Audio process tap (macOS 14.2+; on macOS 26+ it follows Music by bundle ID), and only while a song
 plays: each buffer goes through a small bass-energy beat detector (`BeatDetector`) and is dropped. macOS

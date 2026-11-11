@@ -15,6 +15,10 @@ struct GPUInstance {
     var params = SIMD4<Float>.zero
     /// For animals, w is depth below the surface (0...1).
     var params2 = SIMD4<Float>.zero
+    /// For koi: metallic shine (0...1), fin markings (`KoiVariety.Fins`), red eyes (0 or 1), unused.
+    var params3 = SIMD4<Float>.zero
+    /// For koi: pattern (`KoiVariety.Pattern`), scales (`KoiVariety.Scales`), red lips (0 or 1), ink-wash edges (0 or 1).
+    var params4 = SIMD4<Float>.zero
 }
 
 /// Layout must match `Uniforms` in the shader.
@@ -29,7 +33,7 @@ struct GPUUniforms {
     var glow: SIMD4<Float>
     /// caustics, current strength, flow time, rain
     var fx: SIMD4<Float>
-    /// lightning, saturation, points per texel, unused
+    /// lightning, saturation, points per texel, fish colour kept at night
     var fx2: SIMD4<Float>
 }
 

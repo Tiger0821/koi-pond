@@ -77,36 +77,58 @@ enum InstanceBuilder {
 
     /// Headbanging to the music: the body (not the tail) squashed short and fat on the beat, stretched as it
     /// springs back, the head jolting one way and then the other (the shader bends these into the body
-    /// only, from `color1.w` and `color2.w`); and the whole fish turned, with a flash, in a disco spin. All of
-    /// it is how the fish is drawn, so it never moves the fish itself.
-    private static func dance(_ pond: Pond?, seed: Float, strength: Float) -> (squash: Float, jolt: Float, turn: Float, flash: Float) {
-        guard let pond else { return (0, 0, 0, 0) }
+    /// only, from `color1.w` and `color2.w`). It is how the fish is drawn, so it never moves the fish itself.
+    private static func dance(_ pond: Pond?, strength: Float) -> (squash: Float, jolt: Float) {
+        guard let pond else { return (0, 0) }
         let bang = pond.bang * strength
-        return (bang, pond.beatSide * 0.16 * max(bang, 0), pond.spinAngle(seed: seed), pond.spinFlash(seed: seed) * 0.35)
+        return (bang, pond.beatSide * 0.16 * max(bang, 0))
     }
 
     static func koi(_ k: Koi, pond: Pond? = nil) -> GPUInstance {
-        let look = k.variety.look
         let curvature = max(-0.25, min(0.25, k.length * k.turnRate / (2 * max(k.speed, 12))))
-        let moves = dance(pond, seed: k.seed, strength: k.dance)
+        let moves = dance(pond, strength: k.dance)
         let amplitude = 0.05 + min(k.speed, 70) / 70 * 0.06
         // Bigger when lifted by the cursor.
         let length = k.length * (1 + k.lift * 0.12)
-        let lit = { (c: SIMD3<Float>) in c + (SIMD3<Float>(1, 1, 1) - c) * moves.flash }
-        return GPUInstance(position: k.pos, size: [length * 0.62, length * 0.6], rotation: k.heading + moves.turn,
-                           kind: ShapeKind.fish.rawValue, seed: k.seed, phase: k.phase, color0: SIMD4(lit(look.base), 1),
-                           color1: SIMD4(lit(look.patch), moves.squash), color2: SIMD4(lit(look.accent), moves.jolt),
-                           params: [length, 0.135, amplitude, curvature],
-                           params2: [look.patchThreshold, look.accentThreshold, look.special, k.depth])
+        return koi(k.look, at: k.pos, heading: k.heading, length: length, seed: k.seed, phase: k.phase, depth: k.depth,
+                   amplitude: amplitude, curvature: curvature, moves: moves)
+    }
+
+    static func koi(_ look: KoiVariety.Look, at pos: SIMD2<Float>, heading: Float, length: Float, seed: Float, phase: Float,
+                    depth: Float, amplitude: Float, curvature: Float, moves: (squash: Float, jolt: Float)) -> GPUInstance {
+        GPUInstance(position: pos, size: [length * 0.62, length * 0.6], rotation: heading,
+                    kind: ShapeKind.fish.rawValue, seed: seed, phase: phase, color0: SIMD4(look.base, 1),
+                    color1: SIMD4(look.patch, moves.squash), color2: SIMD4(look.accent, moves.jolt),
+                    params: [length, 0.135, amplitude, curvature],
+                    params2: [look.patchThreshold, look.accentThreshold, look.special, depth],
+                    params3: [look.metallic, look.fins.rawValue, look.redEyes ? 1 : 0, 0],
+                    params4: [look.pattern.rawValue, look.scales.rawValue, look.lips ? 1 : 0, look.inkWash ? 1 : 0])
+    }
+
+    /// Hand-placed koi with their shadows and nothing else, for sample pictures.
+    static func lineup(_ fish: [LineupKoi]) -> [GPUInstance] {
+        let bodies = fish.map { f in
+            koi(f.look, at: f.pos, heading: f.heading, length: f.length, seed: f.seed, phase: f.phase,
+                depth: f.depth, amplitude: 0.075, curvature: f.curvature, moves: (0, 0))
+        }
+        let shadows = zip(fish, bodies).map { f, body in
+            var shadow = body
+            shadow.kind = ShapeKind.fishShadow.rawValue
+            shadow.position += shadowDirection * (5 + (1 - f.depth) * 16)
+            shadow.color0.w = 0.24 * (1 - f.depth * 0.5)
+            return shadow
+        }
+        let order = zip(fish, bodies).sorted { $0.0.depth > $1.0.depth }.map(\.1)
+        return shadows + order
     }
 
     static func smallFish(_ f: SmallFish, pond: Pond? = nil) -> GPUInstance {
         let speed = simd_length(f.vel)
         let curvature = max(-0.3, min(0.3, f.length * f.turnRate / (2 * max(speed, 20))))
-        let moves = dance(pond, seed: f.seed, strength: 0.7)
+        let moves = dance(pond, strength: 0.7)
         let base: SIMD3<Float> = f.golden ? [0.98, 0.6, 0.22] : [0.74, 0.82, 0.88]
         let stripe: SIMD3<Float> = f.golden ? [0.12, 0.1, 0.1] : [0.22, 0.34, 0.5]
-        return GPUInstance(position: f.pos, size: [f.length * 0.62, f.length * 0.6], rotation: f.heading + moves.turn,
+        return GPUInstance(position: f.pos, size: [f.length * 0.62, f.length * 0.6], rotation: f.heading,
                            kind: ShapeKind.fish.rawValue, seed: f.seed, phase: f.phase,
                            color0: SIMD4(base, 1), color1: SIMD4(base, moves.squash), color2: SIMD4(stripe, moves.jolt),
                            params: [f.length, 0.11, 0.08, curvature], params2: [2, 2, 4, 0.25])

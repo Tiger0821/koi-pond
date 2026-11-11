@@ -16,8 +16,7 @@ final class ScreenPond {
     init(screen: NSScreen, displayID: CGDirectDisplayID, ctx: MetalContext, settings: PondSettings) {
         self.displayID = displayID
         frame = screen.frame
-        renderer = PondRenderer(ctx: ctx, size: SIMD2(Float(frame.width), Float(frame.height)),
-                                backingScale: Float(screen.backingScaleFactor), settings: settings,
+        renderer = PondRenderer(ctx: ctx, size: SIMD2(Float(frame.width), Float(frame.height)), settings: settings,
                                 seed: UInt64(displayID) &+ 0x6B6F69)
 
         window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
@@ -44,7 +43,6 @@ final class ScreenPond {
     func update(screen: NSScreen) {
         frame = screen.frame
         window.setFrame(frame, display: true)
-        renderer.backingScale = Float(screen.backingScaleFactor)
         renderer.pond.resize(to: SIMD2(Float(frame.width), Float(frame.height)))
         redrawIfPaused()
     }

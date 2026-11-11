@@ -376,32 +376,6 @@ final class DanceMovesTests: XCTestCase {
         for _ in 0..<60 { pond.step(dt: 1 / 60) }
         XCTAssertLessThan(abs(pond.bang), 0.02, "and settles")
     }
-
-    func testDiscoSpinAboutTwiceAMinuteNeverBackToBack() {
-        let pond = Pond(size: SIMD2(800, 600), seed: 8)
-        pond.configure(PondConfig(koiCount: 2))
-        var starts: [Float] = [], clock: Float = 0, beats = 0, spinning = false
-        // Ten minutes at 120 BPM.
-        while clock < 600 {
-            if clock >= Float(beats) * 0.5 { beats += 1; pond.music = PondMusic(level: 1, beats: beats) }
-            pond.step(dt: 1 / 30)
-            clock += 1 / 30
-            if pond.spinAge != nil, !spinning { starts.append(clock) }
-            spinning = pond.spinAge != nil
-        }
-        XCTAssertTrue((8...32).contains(starts.count), "\(starts.count) spins in ten minutes")
-        XCTAssertGreaterThanOrEqual(zip(starts.dropFirst(), starts).map { $0 - $1 }.min() ?? 99, 12)
-        XCTAssertEqual(pond.spinAngle(seed: 1), pond.spinAge == nil ? 0 : pond.spinAngle(seed: 1))
-    }
-
-    func testNoSpinInSilence() {
-        let pond = Pond(size: SIMD2(800, 600), seed: 8)
-        for beat in 1...400 {
-            pond.music = PondMusic(level: 0, beats: beat)
-            for _ in 0..<15 { pond.step(dt: 1 / 30) }
-            XCTAssertNil(pond.spinAge)
-        }
-    }
 }
 
 final class SettingsGroupTests: XCTestCase {
@@ -410,13 +384,13 @@ final class SettingsGroupTests: XCTestCase {
         s.koiCount = 33
         s.behavior = .shy
         s.weather = .storm
-        s.quality = .smooth
+        s.frameRate = .max
         s.presence = .menuBar
         s.restoreDefaults(.fish)
         XCTAssertEqual(s.koiCount, PondSettings().koiCount)
         XCTAssertEqual(s.behavior, PondSettings().behavior)
         XCTAssertEqual(s.weather, .storm)
-        XCTAssertEqual(s.quality, .smooth)
+        XCTAssertEqual(s.frameRate, .max)
         XCTAssertEqual(s.presence, .menuBar)
     }
 
@@ -447,18 +421,5 @@ final class BounceSettingTests: XCTestCase {
         let normal = peak(strength: DanceBounce.normal.strength)
         XCTAssertEqual(peak(strength: DanceBounce.gentle.strength), normal * 0.5, accuracy: 0.001)
         XCTAssertEqual(peak(strength: DanceBounce.wild.strength), normal * 1.7, accuracy: 0.001)
-    }
-
-    func testDiscoSpinsCanBeTurnedOff() {
-        let pond = Pond(size: SIMD2(800, 600), seed: 8)
-        pond.configure(PondConfig(koiCount: 2))
-        pond.discoSpins = false
-        var clock: Float = 0, beats = 0
-        while clock < 300 {
-            if clock >= Float(beats) * 0.5 { beats += 1; pond.music = PondMusic(level: 1, beats: beats) }
-            pond.step(dt: 1 / 30)
-            clock += 1 / 30
-            XCTAssertNil(pond.spinAge)
-        }
     }
 }
